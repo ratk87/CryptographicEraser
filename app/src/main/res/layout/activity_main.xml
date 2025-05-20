@@ -6,14 +6,18 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!--
-        Button zum Auslösen des Crypto-Shredding-Vorgangs
-        Input: Klick-Event
-        Output: nichts (außer UI-Feedback)
-     -->
+    <!-- Button for single file selection -->
     <Button
-        android:id="@+id/btnShred"
+        android:id="@+id/btnShredSingle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Datei shreddern" />
+        android:text="Shred Single File" />
+
+    <!-- Button for multiple file selection -->
+    <Button
+        android:id="@+id/btnShredMultiple"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Shred Multiple Files" />
 </LinearLayout>

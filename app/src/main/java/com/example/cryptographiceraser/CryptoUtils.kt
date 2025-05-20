@@ -1,142 +1,117 @@
 package com.example.cryptographiceraser
 
 import android.content.Context
+import android.net.Uri
+import android.os.Environment
+import android.util.Log
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.SecureRandom
 import javax.crypto.Cipher
-import javax.crypto.SecretKey
+import javax.crypto.CipherOutputStream
 import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
-/**
- * Objekt mit Hilfsfunktionen für:
- * - Ephemeral-Key-Generierung (AES-XTS-256 via PBKDF2)
- * - Datei-Verschlüsselung mit AES-XTS
- * - Freier Speicher-Wipe
- */
 object CryptoUtils {
 
-    /**
-     * Funktion: generateEphemeralXtsKey
-     * Input: password: CharArray
-     * Output: Pair<SecretKey, ByteArray> (SecretKey, Salt)
-     * Was?
-     *   - NIST SP 800-88r1 §2.6: AES-XTS-256 Schlüssel ableiten
-     *   - Salt (128 Bit) erzeugen für KDF
-     *   - PBKDF2WithHmacSHA256 (100 000 Iterationen)
-     *   - SecretKeySpec für AES erstellen
-     *   - Passwort + Zwischendaten aus RAM löschen
-     */
-    fun generateEphemeralXtsKey(password: CharArray): Pair<SecretKey, ByteArray> {
-        // Salt erzeugen (128 Bit)
-        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+    private const val TAG = "CryptoUtils"
 
-        // KDF-Parameter
+    /**
+     * Encrypts a file from a SAF Uri using AES-GCM and PBKDF2.
+     * Writes [salt | iv | ciphertext] to a new ".encrypted" file in the app's Documents directory.
+     * The original file is NOT deleted (test mode).
+     * Input: context, fileUri, password
+     * Output: true if successful, false otherwise
+     */
+    fun encryptFileAndSaveCopy(context: Context, fileUri: Uri, password: CharArray): Boolean {
+        // Prepare crypto parameters
+        val salt = ByteArray(16)
+        val iv = ByteArray(12)
+        SecureRandom().nextBytes(salt)
+        SecureRandom().nextBytes(iv)
+
         val iterations = 100_000
-        val spec = PBEKeySpec(password, salt, iterations, 256)
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val keyBytes = factory.generateSecret(spec).encoded
+        val keyLength = 256
 
-        // AES-XTS SecretKey
-        val secretKey = SecretKeySpec(keyBytes, "AES")
+        try {
+            // Derive encryption key using PBKDF2
+            val spec = PBEKeySpec(password, salt, iterations, keyLength)
+            val keyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            val secretKey = SecretKeySpec(keyFactory.generateSecret(spec).encoded, "AES")
 
-        // Speicher säubern
-        spec.clearPassword()
-        password.fill('\u0000')
-        keyBytes.fill(0)
+            // Init AES-GCM cipher
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            val gcmSpec = GCMParameterSpec(128, iv)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, gcmSpec)
 
-        return Pair(secretKey, salt)
-    }
+            // Get file name from Uri
+            val name = getFileNameFromUri(context, fileUri) ?: "unknown"
+            val encName = "$name.encrypted"
+            Log.d(TAG, "Output encrypted file name: $encName")
 
-    /**
-     * Funktion: encryptFileWithXtsKey
-     * Input:
-     *   - input: File (zu verschlüsselnde Datei)
-     *   - output: File (Ziel für Ciphertext)
-     *   - key: SecretKey (AES-XTS Key)
-     * Output: nichts (schreibt verschlüsselte Datei)
-     * Was?
-     *   - IV (128 Bit) generieren
-     *   - Cipher „AES/XTS/NoPadding“ initialisieren
-     *   - IV am Dateianfang schreiben
-     *   - Input blockweise verschlüsseln → output
-     */
-    fun encryptFileWithXtsKey(input: File, output: File, key: SecretKey) {
-        // IV erzeugen
-        val iv = ByteArray(16).also { SecureRandom().nextBytes(it) }
-        val ivSpec = IvParameterSpec(iv)
+            // Prepare output file in app's Documents directory
+            val outDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            outDir?.mkdirs()
+            val outFile = File(outDir, encName)
+            Log.d(TAG, "Output path: ${outFile.absolutePath}")
 
-        // Cipher initialisieren
-        val cipher = Cipher.getInstance("AES/XTS/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key, ivSpec)
-
-        // Streams öffnen
-        FileInputStream(input).use { fis ->
-            FileOutputStream(output).use { fos ->
-                fos.write(iv)  // IV voranstellen
-                val buffer = ByteArray(4096)
-                var read: Int
-                while (fis.read(buffer).also { read = it } != -1) {
-                    val ct = cipher.update(buffer, 0, read)
-                    fos.write(ct)
-                }
-                fos.write(cipher.doFinal())
-            }
-        }
-    }
-
-    /**
-     * Funktion: clearEphemeralKey
-     * Input: key: SecretKey?
-     * Output: nichts
-     * Was?
-     *   - Wenn SecretKeySpec: key.encoded mit Nullen überschreiben
-     *   - Referenz in aufrufender Klasse verwerfen
-     */
-    fun clearEphemeralKey(key: SecretKey?) {
-        if (key is SecretKeySpec) {
-            key.encoded.fill(0)
-        }
-        // Variable in aufrufender Methode auf null setzen
-    }
-
-    /**
-     * Funktion: wipeFreeSpace
-     * Input: context: Context
-     * Output: nichts
-     * Was?
-     *   - Legt Dummy-Dateien im Cache-Verzeichnis an
-     *   - Füllt sie mit Zufallsblöcken, bis kein Platz mehr bleibt
-     *   - Löscht anschließend alle Dummy-Dateien
-     */
-    fun wipeFreeSpace(context: Context) {
-        val dir = context.cacheDir
-        val rnd = SecureRandom()
-        val buffer = ByteArray(1024 * 1024)  // 1 MiB-Blöcke
-
-        var index = 0
-        // 1. Freiraum füllen
-        while (true) {
-            val dummy = File(dir, "wipe_$index.bin")
-            try {
-                FileOutputStream(dummy).use { out ->
-                    while (true) {
-                        rnd.nextBytes(buffer)
-                        out.write(buffer)
+            // Open streams and perform encryption
+            context.contentResolver.openInputStream(fileUri).use { input ->
+                FileOutputStream(outFile).use { fileOut ->
+                    // Write salt and IV to start of file
+                    fileOut.write(salt)
+                    fileOut.write(iv)
+                    // Encrypt and write the rest
+                    CipherOutputStream(fileOut, cipher).use { cipherOut ->
+                        input?.copyTo(cipherOut)
                     }
                 }
-            } catch (e: Exception) {
-                // Kein Platz mehr
-                break
-            } finally {
-                index++
             }
+
+            Log.d(TAG, "Encrypted file written successfully!")
+
+            // Securely wipe key material from memory
+            spec.clearPassword()
+            password.fill('\u0000')
+            secretKey.encoded.fill(0)
+
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during encryption: ", e)
+            return false
         }
-        // 2. Dummy-Dateien löschen
-        dir.listFiles { f -> f.name.startsWith("wipe_") }?.forEach { it.delete() }
+    }
+
+    /**
+     * Retrieves a display name for a file from its SAF Uri.
+     * Returns: filename or null
+     */
+    fun getFileNameFromUri(context: Context, uri: Uri): String? {
+        val cursor = context.contentResolver.query(uri, null, null, null, null)
+        return cursor?.use {
+            val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (it.moveToFirst() && nameIndex >= 0) it.getString(nameIndex) else null
+        }
+    }
+
+    /**
+     * For debugging only: Write a test dummy file to the app's Documents directory.
+     * Call this from your Activity to verify write permissions and path!
+     * Input: context
+     */
+    fun writeTestDummyFile(context: Context) {
+        try {
+            val outDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            outDir?.mkdirs()
+            val dummyFile = File(outDir, "test_dummy.txt")
+            FileOutputStream(dummyFile).use { out ->
+                out.write("Hello from CryptographicEraser!\nThis is a dummy test file.".toByteArray())
+            }
+            Log.d(TAG, "Dummy file written successfully: ${dummyFile.absolutePath}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing dummy file: ", e)
+        }
     }
 }
