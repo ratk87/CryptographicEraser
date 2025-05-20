@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="24dp"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!--
+        Button zum Auslösen des Crypto-Shredding-Vorgangs
+        Input: Klick-Event
+        Output: nichts (außer UI-Feedback)
+     -->
+    <Button
+        android:id="@+id/btnShred"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Datei shreddern" />
+</LinearLayout>
