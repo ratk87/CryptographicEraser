@@ -51,6 +51,18 @@ object WipeUtils {
         return totalBytesWritten
     }
 
+    /**
+     * Performs the wipe twice for added security.
+     * Each wipe cycle overwrites the free space with dummy data and deletes all dummy files.
+     *
+     * Input: context, directory
+     */
+    fun doubleWipeFreeSpace(context: Context, directory: File) {
+        repeat(2) { round ->
+            wipeFreeSpaceInDirectory(context, directory)
+            cleanWipeDummyFiles(directory)
+        }
+    }
 
     /**
      * Deletes all dummy files created during the wipe process in the specified directory.
@@ -68,7 +80,6 @@ object WipeUtils {
         }
         return count
     }
-
 
     /**
      * Wipes free space in both internal and external app-specific directories (if available).

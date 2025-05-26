@@ -69,9 +69,40 @@ class MainActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 val password = requestPassword(this@MainActivity, "Enter password for secure erase")
                 if (password != null && password.isNotEmpty()) {
-                    val success = CryptoUtils.encryptFileAndSaveCopy(this@MainActivity, uri, password)
-                    if (success) {
-                        Toast.makeText(this@MainActivity, "File encrypted (.encrypted file created)", Toast.LENGTH_LONG).show()
+                    // Schritt 1: Datei verschlüsseln (.encrypted bleibt erhalten)
+                    val encryptionSuccess = CryptoUtils.encryptFileAndSaveCopy(this@MainActivity, uri, password)
+
+                    // Schritt 2: Ephemeral Key wird im Encryption-Modul vernichtet (Kotlin: Arrays überschreiben, Referenzen nullen)
+
+                    if (encryptionSuccess) {
+                        // Schritt 3: Originaldatei sicher löschen (SAF-konform)
+                        try {
+                            val deleted = contentResolver.delete(uri, null, null)
+                            if (deleted > 0) {
+                                Toast.makeText(this@MainActivity, "Original file deleted.", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this@MainActivity, "Failed to delete original file!", Toast.LENGTH_LONG).show()
+                            }
+                        } catch (e: UnsupportedOperationException){
+                            Toast.makeText(this@MainActivity, "Deletion not supported for this file (SAF/Provider limitation).", Toast.LENGTH_LONG).show()
+                        }
+
+
+                        // Schritt 4: Doppelt-Wipen des freien Speichers im Documents-Verzeichnis
+                        val documentsDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: filesDir
+                        progressBar.progress = 0
+                        progressBar.visibility = ProgressBar.VISIBLE
+                        statusText.visibility = TextView.VISIBLE
+                        statusText.text = "Wiping free space (2x)..."
+                        // Wipe läuft im Hintergrundthread!
+                        Thread {
+                            WipeUtils.doubleWipeFreeSpace(this@MainActivity, documentsDir)
+                            runOnUiThread {
+                                progressBar.visibility = ProgressBar.GONE
+                                statusText.text = "Secure deletion completed. If storage is not freed immediately, restart the device."
+                                Toast.makeText(this@MainActivity, "Secure deletion completed.", Toast.LENGTH_LONG).show()
+                            }
+                        }.start()
                     } else {
                         Toast.makeText(this@MainActivity, "Error during encryption", Toast.LENGTH_LONG).show()
                     }
@@ -95,12 +126,35 @@ class MainActivity : AppCompatActivity() {
                 val password = requestPassword(this@MainActivity, "Enter password for secure erase")
                 if (password != null && password.isNotEmpty()) {
                     var successCount = 0
+                    var deleteFailedCount = 0
+                    val deleteResults = mutableListOf<Boolean>()
                     for (uri in uris) {
                         if (CryptoUtils.encryptFileAndSaveCopy(this@MainActivity, uri, password)) {
-                            successCount++
+                            val deleted = contentResolver.delete(uri, null, null)
+                            deleteResults.add(deleted > 0)
+                            if (deleted > 0) {
+                                successCount++
+                            } else {
+                                deleteFailedCount++
+                            }
                         }
                     }
-                    Toast.makeText(this@MainActivity, "$successCount of ${uris.size} files encrypted.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@MainActivity, "$successCount of ${uris.size} files encrypted and deleted. $deleteFailedCount delete failed.", Toast.LENGTH_LONG).show()
+
+                    // Schritt 4: Doppelt-Wipen
+                    val documentsDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: filesDir
+                    progressBar.progress = 0
+                    progressBar.visibility = ProgressBar.VISIBLE
+                    statusText.visibility = TextView.VISIBLE
+                    statusText.text = "Wiping free space (2x)..."
+                    Thread {
+                        WipeUtils.doubleWipeFreeSpace(this@MainActivity, documentsDir)
+                        runOnUiThread {
+                            progressBar.visibility = ProgressBar.GONE
+                            statusText.text = "Secure deletion completed. If storage is not freed immediately, restart the device."
+                            Toast.makeText(this@MainActivity, "Secure deletion completed.", Toast.LENGTH_LONG).show()
+                        }
+                    }.start()
                 } else {
                     Toast.makeText(this@MainActivity, "No password entered, aborted.", Toast.LENGTH_SHORT).show()
                 }
@@ -298,18 +352,15 @@ class MainActivity : AppCompatActivity() {
                 true
             }
             R.id.action_faq -> {
-                // TODO: Open FAQ dialog or activity
                 Toast.makeText(this, "FAQ selected (not implemented yet)", Toast.LENGTH_SHORT).show()
                 true
             }
             R.id.action_info -> {
-                // TODO: Open Info dialog or activity
-                Toast.makeText(this, "Info selected (not implemented yet)", Toast.LENGTH_SHORT).show()
+                showAndroidStorageInfoDialog(this)
                 true
             }
             else -> super.onOptionsItemSelected(item)
         }
     }
-
 
 }

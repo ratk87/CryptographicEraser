@@ -39,3 +39,23 @@ suspend fun requestPassword(
         .create()
     dialog.show()
 }
+
+/**
+ * Shows an information dialog explaining Android storage and deletion restrictions.
+ * Call this from your activity, for example on FAQ or Info menu selection.
+ *
+ * @param context The context to use for showing the dialog.
+ */
+fun showAndroidStorageInfoDialog(context: Context) {
+    AlertDialog.Builder(context)
+        .setTitle("Why can't files always be deleted?")
+        .setMessage(
+            "Due to Android's security and privacy rules, apps are not allowed to freely delete or modify files outside their own app folder. " +
+                    "Even with full storage permissions, many files in folders like Downloads, Pictures, or other apps can only be accessed using the file picker (Storage Access Framework). " +
+                    "Sometimes, the Android system or the app that created the file prevents deletion to protect your data. " +
+                    "This is why, even after selecting a file, secure deletion is not always possible. " +
+                    "\n\nIf a file cannot be deleted, you may have to remove it manually using a file manager app."
+        )
+        .setPositiveButton("OK", null)
+        .show()
+}
