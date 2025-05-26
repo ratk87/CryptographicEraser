@@ -6,6 +6,63 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <LinearLayout
+        android:id="@+id/storageInfoContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="24dp"
+        android:paddingBottom="24dp"
+        android:gravity="start">
+        <!-- Internal Storage Info Row -->
+        <LinearLayout
+            android:id="@+id/internalStorageRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingBottom="8dp">
+
+            <ImageView
+                android:id="@+id/iconInternal"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/ic_menu_save"
+                android:contentDescription="Internal Storage Icon"/>
+            <TextView
+                android:id="@+id/textInternalStorage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:textSize="16sp"
+                android:text="Internal Storage (Total / Free): 0 GB / 0 GB"/>
+        </LinearLayout>
+        <!-- External Storage Row: only visible if SD card present -->
+        <LinearLayout
+            android:id="@+id/externalStorageRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone"
+            android:paddingBottom="8dp">
+
+            <ImageView
+                android:id="@+id/iconExternal"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/ic_menu_save"
+                android:contentDescription="External Storage Icon"/>
+            <TextView
+                android:id="@+id/textExternalStorage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:textSize="16sp"
+                android:text="SD Card (Total / Free): 0 GB / 0 GB"/>
+        </LinearLayout>
+    </LinearLayout>
+
     <!-- Button for single file selection -->
     <Button
         android:id="@+id/btnShredSingle"
@@ -20,4 +77,30 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:text="Shred Multiple Files" />
+    <!-- Button for wiping the free space -->
+    <Button
+        android:id="@+id/btnWipe"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Wipe Free Space" />
+
+    <ProgressBar
+        android:id="@+id/progressBarWipe"
+        android:layout_width="250dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:visibility="gone"
+        style="?android:attr/progressBarStyleHorizontal"/>
+
+    <TextView
+        android:id="@+id/textWipeStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text=""
+        android:textSize="14sp"
+        android:visibility="gone"/>
+
+
 </LinearLayout>

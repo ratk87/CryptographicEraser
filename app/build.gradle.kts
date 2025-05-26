@@ -43,6 +43,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("org.bouncycastle:bcprov-jdk15on:1.70") // Für Crypto (AES-XTS/PBKDF2)
     implementation("androidx.core:core-ktx:1.12.0")
+    implementation("com.google.android.material:material:1.11.0") // Access to material design icons
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
