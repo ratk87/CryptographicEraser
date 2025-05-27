@@ -19,14 +19,14 @@ object CryptoUtils {
     private const val TAG = "CryptoUtils"
 
     /**
-     * Encrypts a file from a SAF Uri using AES-GCM and PBKDF2.
-     * Writes [salt | iv | ciphertext] to a new ".encrypted" file in the app's Documents directory.
-     * The original file is NOT deleted (test mode).
+     * Encrypts the file IN PLACE via SAF-URI using AES-GCM and PBKDF2.
+     * This method overwrites the original file with its encrypted content.
+     *
      * Input: context, fileUri, password
      * Output: true if successful, false otherwise
      */
-    fun encryptFileAndSaveCopy(context: Context, fileUri: Uri, password: CharArray): Boolean {
-        // Prepare crypto parameters
+    fun encryptFileInPlace(context: Context, fileUri: Uri, password: CharArray): Boolean {
+        // Generate salt and IV (nonce) for AES-GCM
         val salt = ByteArray(16)
         val iv = ByteArray(12)
         SecureRandom().nextBytes(salt)
@@ -46,43 +46,39 @@ object CryptoUtils {
             val gcmSpec = GCMParameterSpec(128, iv)
             cipher.init(Cipher.ENCRYPT_MODE, secretKey, gcmSpec)
 
-            // Get file name from Uri
-            val name = getFileNameFromUri(context, fileUri) ?: "unknown"
-            val encName = "$name.encrypted"
-            Log.d(TAG, "Output encrypted file name: $encName")
-
-            // Prepare output file in app's Documents directory
-            val outDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-            outDir?.mkdirs()
-            val outFile = File(outDir, encName)
-            Log.d(TAG, "Output path: ${outFile.absolutePath}")
-
-            // Open streams and perform encryption
-            context.contentResolver.openInputStream(fileUri).use { input ->
-                FileOutputStream(outFile).use { fileOut ->
-                    // Write salt and IV to start of file
-                    fileOut.write(salt)
-                    fileOut.write(iv)
-                    // Encrypt and write the rest
-                    CipherOutputStream(fileOut, cipher).use { cipherOut ->
-                        input?.copyTo(cipherOut)
-                    }
-                }
+            // Open streams for SAF-URI: use "wt" mode for truncating/overwriting
+            val inputStream = context.contentResolver.openInputStream(fileUri)
+            val outputStream = context.contentResolver.openOutputStream(fileUri, "wt")
+            if (inputStream == null || outputStream == null) {
+                Log.e(TAG, "Could not open file streams for in-place encryption.")
+                return false
             }
 
-            Log.d(TAG, "Encrypted file written successfully!")
+            // Write salt and IV to start of file
+            outputStream.write(salt)
+            outputStream.write(iv)
+
+            // Encrypt and write file content in-place (block-wise)
+            CipherOutputStream(outputStream, cipher).use { cipherOut ->
+                inputStream.copyTo(cipherOut)
+            }
+
+            inputStream.close()
+            outputStream.close()
 
             // Securely wipe key material from memory
             spec.clearPassword()
             password.fill('\u0000')
             secretKey.encoded.fill(0)
 
+            Log.d(TAG, "In-place encryption successful!")
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Error during encryption: ", e)
+            Log.e(TAG, "Error during in-place encryption: ", e)
             return false
         }
     }
+
 
     /**
      * Retrieves a display name for a file from its SAF Uri.

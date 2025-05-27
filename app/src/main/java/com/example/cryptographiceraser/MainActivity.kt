@@ -19,6 +19,14 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.view.Menu
 import android.view.MenuItem
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import android.content.Intent
+
+
 
 
 class MainActivity : AppCompatActivity() {
@@ -58,43 +66,55 @@ class MainActivity : AppCompatActivity() {
     private var wipeCancelled = false
 
     /**
-     * Launcher for single file selection using Storage Access Framework.
-     * Input: User selects a file.
-     * Output: Callback with Uri of selected file, or null if cancelled.
+     * Launcher for single file selection using Storage Access Framework (SAF).
+     * The user selects a file; after selection, the file is encrypted in-place (overwritten) and deleted.
+     * The ephemeral encryption key is securely wiped from memory.
+     * Afterwards, the app triggers a double wipe of the free space for extra security.
      */
     private val pickSingleFileLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
+            // Use a coroutine so the UI remains responsive
             lifecycleScope.launch {
+                // 1. Prompt user for password (will be used for encryption)
                 val password = requestPassword(this@MainActivity, "Enter password for secure erase")
                 if (password != null && password.isNotEmpty()) {
-                    // Schritt 1: Datei verschlüsseln (.encrypted bleibt erhalten)
-                    val encryptionSuccess = CryptoUtils.encryptFileAndSaveCopy(this@MainActivity, uri, password)
+                    // 2. Encrypt the file in-place (overwrite original file with ciphertext)
+                    val encryptionSuccess = CryptoUtils.encryptFileInPlace(this@MainActivity, uri, password)
 
-                    // Schritt 2: Ephemeral Key wird im Encryption-Modul vernichtet (Kotlin: Arrays überschreiben, Referenzen nullen)
+                    // 3. Key material is wiped inside CryptoUtils
 
                     if (encryptionSuccess) {
-                        // Schritt 3: Originaldatei sicher löschen (SAF-konform)
+                        // 4. Inform user and request user-driven deletion via SAF Intent (ACTION_DELETE)
+                        Toast.makeText(this@MainActivity, "File encrypted in place.", Toast.LENGTH_LONG).show()
+
+                        // Create SAF delete intent
+                        val deleteIntent = Intent(Intent.ACTION_DELETE).apply {
+                            data = uri
+                            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                        }
                         try {
-                            val deleted = contentResolver.delete(uri, null, null)
-                            if (deleted > 0) {
-                                Toast.makeText(this@MainActivity, "Original file deleted.", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(this@MainActivity, "Failed to delete original file!", Toast.LENGTH_LONG).show()
-                            }
-                        } catch (e: UnsupportedOperationException){
-                            Toast.makeText(this@MainActivity, "Deletion not supported for this file (SAF/Provider limitation).", Toast.LENGTH_LONG).show()
+                            startActivity(deleteIntent)
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Please confirm deletion in the system dialog.\nThis is required by Android policy.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Delete action not supported for this file/location!",
+                                Toast.LENGTH_LONG
+                            ).show()
                         }
 
-
-                        // Schritt 4: Doppelt-Wipen des freien Speichers im Documents-Verzeichnis
+                        // 5. Trigger double wipe (optional but recommended)
                         val documentsDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: filesDir
                         progressBar.progress = 0
                         progressBar.visibility = ProgressBar.VISIBLE
                         statusText.visibility = TextView.VISIBLE
                         statusText.text = "Wiping free space (2x)..."
-                        // Wipe läuft im Hintergrundthread!
                         Thread {
                             WipeUtils.doubleWipeFreeSpace(this@MainActivity, documentsDir)
                             runOnUiThread {
@@ -104,44 +124,71 @@ class MainActivity : AppCompatActivity() {
                             }
                         }.start()
                     } else {
+                        // Encryption failed (e.g., no permission, file locked, ...), show error
                         Toast.makeText(this@MainActivity, "Error during encryption", Toast.LENGTH_LONG).show()
                     }
                 } else {
+                    // User cancelled the password dialog
                     Toast.makeText(this@MainActivity, "No password entered, aborted.", Toast.LENGTH_SHORT).show()
                 }
             }
         }
     }
 
+
+
     /**
-     * Launcher for multiple file selection using Storage Access Framework.
-     * Input: User selects one or more files.
-     * Output: Callback with list of Uris, or empty list if cancelled.
+     * Launcher for multiple file selection using Storage Access Framework (SAF).
+     * The user selects one or more files; each file is encrypted in-place (overwritten) and deleted.
+     * All ephemeral keys are securely wiped. At the end, a double wipe of free space is triggered.
      */
     private val pickMultipleFilesLauncher = registerForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
             lifecycleScope.launch {
+                // 1. Prompt user for password (used for all selected files)
                 val password = requestPassword(this@MainActivity, "Enter password for secure erase")
                 if (password != null && password.isNotEmpty()) {
-                    var successCount = 0
-                    var deleteFailedCount = 0
-                    val deleteResults = mutableListOf<Boolean>()
+                    var successCount = 0    // Counter for successful encryptions
+                    var failedCount = 0     // Counter for failures
+
+                    // 2. Encrypt each file in-place (loop over all uris)
                     for (uri in uris) {
-                        if (CryptoUtils.encryptFileAndSaveCopy(this@MainActivity, uri, password)) {
-                            val deleted = contentResolver.delete(uri, null, null)
-                            deleteResults.add(deleted > 0)
-                            if (deleted > 0) {
-                                successCount++
-                            } else {
-                                deleteFailedCount++
+                        if (CryptoUtils.encryptFileInPlace(this@MainActivity, uri, password)) {
+                            successCount++
+                            // *** Delete each file with user confirmation (SAF Intent) ***
+                            val deleteIntent = Intent(Intent.ACTION_DELETE).apply {
+                                data = uri
+                                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                             }
+                            try {
+                                startActivity(deleteIntent)
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Please confirm deletion for each file in the system dialog.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Delete not supported for one or more files!",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        } else {
+                            failedCount++
                         }
                     }
-                    Toast.makeText(this@MainActivity, "$successCount of ${uris.size} files encrypted and deleted. $deleteFailedCount delete failed.", Toast.LENGTH_LONG).show()
 
-                    // Schritt 4: Doppelt-Wipen
+                    // 3. Summary for user
+                    Toast.makeText(
+                        this@MainActivity,
+                        "$successCount of ${uris.size} files encrypted in place. $failedCount failed.\nYou must confirm each file deletion in the system dialog.",
+                        Toast.LENGTH_LONG
+                    ).show()
+
+                    // 4. Double wipe as last step
                     val documentsDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: filesDir
                     progressBar.progress = 0
                     progressBar.visibility = ProgressBar.VISIBLE
@@ -161,6 +208,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+
+
+    private val STORAGE_PERMISSION_REQUEST_CODE = 1001
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -186,6 +238,9 @@ class MainActivity : AppCompatActivity() {
         } else {
             externalStorageRow.visibility = LinearLayout.GONE
         }
+
+        // Ensuring that access permission is / was being requested
+        requestAllStoragePermissionsIfNeeded()
 
         // "lateinit" views are initialized here, after the layout is set.
         progressBar = findViewById(R.id.progressBarWipe)
@@ -360,6 +415,40 @@ class MainActivity : AppCompatActivity() {
                 true
             }
             else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    /**
+     * Requests all relevant storage/media permissions for Android 9-15 in a Play Store-compliant way.
+     * This enables access to files in Downloads, Pictures, etc. after user consent.
+     */
+    private fun requestAllStoragePermissionsIfNeeded() {
+        val perms = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13+
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED)
+                perms.add(Manifest.permission.READ_MEDIA_IMAGES)
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED)
+                perms.add(Manifest.permission.READ_MEDIA_VIDEO)
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) != PackageManager.PERMISSION_GRANTED)
+                perms.add(Manifest.permission.READ_MEDIA_AUDIO)
+        } else {
+            // Android 9-12
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED)
+                perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED)
+                perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+        if (perms.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, perms.toTypedArray(), STORAGE_PERMISSION_REQUEST_CODE)
+        }
+    }
+    // Optional Implementation: Handles the messaging to the user about the permission result -> Full Transparency!
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == STORAGE_PERMISSION_REQUEST_CODE) {
+            // Optional: Check what was granted/denied and show feedback
         }
     }
 
