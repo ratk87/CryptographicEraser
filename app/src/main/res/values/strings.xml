@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">CryptographicEraser</string>
+    <string name="action_exit">Exit</string>
+    <string name="action_faq">FAQ</string>
+    <string name="action_info">Info</string>
+
 </resources>

@@ -1,0 +1,21 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <!-- FAQ Placeholder -->
+    <item
+        android:id="@+id/action_faq"
+        android:title="@string/action_faq"
+        app:showAsAction="never"/>
+
+    <!-- Info Placeholder -->
+    <item
+        android:id="@+id/action_info"
+        android:title="@string/action_info"
+        app:showAsAction="never"/>
+
+    <!-- Exit Button - NO ICON so it stays in the overflow menu -->
+    <item
+        android:id="@+id/action_exit"
+        android:title="@string/action_exit"
+        app:showAsAction="never"/>
+</menu>
