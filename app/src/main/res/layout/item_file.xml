@@ -1,0 +1,7 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="horizontal" android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:padding="8dp">
+    <TextView android:id="@+id/txtFileName" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"/>
+    <Button android:id="@+id/btnEncrypt" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Encrypt"/>
+    <Button android:id="@+id/btnDelete" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Delete"/>
+</LinearLayout>

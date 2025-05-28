@@ -1,12 +1,10 @@
 package com.example.cryptographiceraser
 
 import android.content.Context
-import android.net.Uri
 import android.os.Environment
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
-import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.CipherOutputStream
 import javax.crypto.SecretKeyFactory
@@ -19,83 +17,60 @@ object CryptoUtils {
     private const val TAG = "CryptoUtils"
 
     /**
-     * Encrypts the file IN PLACE via SAF-URI using AES-GCM and PBKDF2.
-     * This method overwrites the original file with its encrypted content.
-     *
-     * Input: context, fileUri, password
-     * Output: true if successful, false otherwise
+     * Encrypts a file IN PLACE using AES-GCM and PBKDF2.
+     * Overwrites the original file by writing [salt | iv | ciphertext].
+     * Returns true if successful, false otherwise.
      */
-    fun encryptFileInPlace(context: Context, fileUri: Uri, password: CharArray): Boolean {
-        // Generate salt and IV (nonce) for AES-GCM
+    fun encryptFileInPlace(context: Context, file: File, password: CharArray): Boolean {
         val salt = ByteArray(16)
         val iv = ByteArray(12)
-        SecureRandom().nextBytes(salt)
-        SecureRandom().nextBytes(iv)
-
+        java.security.SecureRandom().nextBytes(salt)
+        java.security.SecureRandom().nextBytes(iv)
         val iterations = 100_000
         val keyLength = 256
-
         try {
-            // Derive encryption key using PBKDF2
             val spec = PBEKeySpec(password, salt, iterations, keyLength)
             val keyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
             val secretKey = SecretKeySpec(keyFactory.generateSecret(spec).encoded, "AES")
-
-            // Init AES-GCM cipher
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             val gcmSpec = GCMParameterSpec(128, iv)
             cipher.init(Cipher.ENCRYPT_MODE, secretKey, gcmSpec)
 
-            // Open streams for SAF-URI: use "wt" mode for truncating/overwriting
-            val inputStream = context.contentResolver.openInputStream(fileUri)
-            val outputStream = context.contentResolver.openOutputStream(fileUri, "wt")
-            if (inputStream == null || outputStream == null) {
-                Log.e(TAG, "Could not open file streams for in-place encryption.")
+            // Write to a temporary file first
+            val tempFile = File(file.parent, file.name + ".enc")
+            file.inputStream().use { input ->
+                tempFile.outputStream().use { output ->
+                    output.write(salt)
+                    output.write(iv)
+                    CipherOutputStream(output, cipher).use { cipherOut ->
+                        input.copyTo(cipherOut)
+                    }
+                }
+            }
+            // Replace original file atomically
+            if (file.delete()) {
+                if (tempFile.renameTo(file)) {
+                    // Wipe key material from RAM
+                    spec.clearPassword()
+                    password.fill('\u0000')
+                    secretKey.encoded.fill(0)
+                    return true
+                } else {
+                    tempFile.delete()
+                    return false
+                }
+            } else {
+                tempFile.delete()
                 return false
             }
-
-            // Write salt and IV to start of file
-            outputStream.write(salt)
-            outputStream.write(iv)
-
-            // Encrypt and write file content in-place (block-wise)
-            CipherOutputStream(outputStream, cipher).use { cipherOut ->
-                inputStream.copyTo(cipherOut)
-            }
-
-            inputStream.close()
-            outputStream.close()
-
-            // Securely wipe key material from memory
-            spec.clearPassword()
-            password.fill('\u0000')
-            secretKey.encoded.fill(0)
-
-            Log.d(TAG, "In-place encryption successful!")
-            return true
         } catch (e: Exception) {
-            Log.e(TAG, "Error during in-place encryption: ", e)
+            Log.e(TAG, "Encryption failed: ", e)
             return false
-        }
-    }
-
-
-    /**
-     * Retrieves a display name for a file from its SAF Uri.
-     * Returns: filename or null
-     */
-    fun getFileNameFromUri(context: Context, uri: Uri): String? {
-        val cursor = context.contentResolver.query(uri, null, null, null, null)
-        return cursor?.use {
-            val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-            if (it.moveToFirst() && nameIndex >= 0) it.getString(nameIndex) else null
         }
     }
 
     /**
      * For debugging only: Write a test dummy file to the app's Documents directory.
-     * Call this from your Activity to verify write permissions and path!
-     * Input: context
      */
     fun writeTestDummyFile(context: Context) {
         try {
