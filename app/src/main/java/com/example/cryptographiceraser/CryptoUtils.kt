@@ -1,10 +1,12 @@
 package com.example.cryptographiceraser
 
 import android.content.Context
+import android.net.Uri
 import android.os.Environment
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.CipherOutputStream
 import javax.crypto.SecretKeyFactory
@@ -17,27 +19,17 @@ object CryptoUtils {
     private const val TAG = "CryptoUtils"
 
     /**
-     * Verschlüsselt eine Datei IN PLACE mit AES-GCM und PBKDF2.
-     * Überschreibt die Originaldatei mit [salt | iv | ciphertext].
-     * Nutzt explizites Buffering, damit auch sehr große Dateien ohne OutOfMemoryError bearbeitet werden können.
-     * Gibt true zurück bei Erfolg, sonst false.
-     *
-     * @param context   Android Context (reserviert für Logging/Fehlermeldungen)
-     * @param file      Zu verschlüsselnde Datei
-     * @param password  Passwort als CharArray für PBKDF2
+     * Encrypts a file IN PLACE using AES-GCM and PBKDF2.
+     * Overwrites the original file by writing [salt | iv | ciphertext].
+     * Returns true if successful, false otherwise.
      */
     fun encryptFileInPlace(context: Context, file: File, password: CharArray): Boolean {
         val salt = ByteArray(16)
         val iv = ByteArray(12)
-        java.security.SecureRandom().nextBytes(salt)
-        java.security.SecureRandom().nextBytes(iv)
+        SecureRandom().nextBytes(salt)
+        SecureRandom().nextBytes(iv)
         val iterations = 100_000
         val keyLength = 256
-
-        var input: java.io.InputStream? = null
-        var output: java.io.OutputStream? = null
-        var cipherOut: CipherOutputStream? = null
-
         try {
             val spec = PBEKeySpec(password, salt, iterations, keyLength)
             val keyFactory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
@@ -46,29 +38,21 @@ object CryptoUtils {
             val gcmSpec = GCMParameterSpec(128, iv)
             cipher.init(Cipher.ENCRYPT_MODE, secretKey, gcmSpec)
 
-            // Schreibe in temporäre Datei, um Atomizität zu gewährleisten
+            // Write to a temporary file first
             val tempFile = File(file.parent, file.name + ".enc")
-            input = file.inputStream()
-            output = tempFile.outputStream()
-            output.write(salt)   // 16 Byte: Salt
-            output.write(iv)     // 12 Byte: IV
-            cipherOut = CipherOutputStream(output, cipher)
-
-            val buffer = ByteArray(16 * 1024) // 16KB Buffer für große Dateien
-            var bytesRead: Int
-            while (input.read(buffer).also { bytesRead = it } != -1) {
-                cipherOut.write(buffer, 0, bytesRead)
+            file.inputStream().use { input ->
+                tempFile.outputStream().use { output ->
+                    output.write(salt)
+                    output.write(iv)
+                    CipherOutputStream(output, cipher).use { cipherOut ->
+                        input.copyTo(cipherOut)
+                    }
+                }
             }
-            cipherOut.flush() // sicherstellen, dass alles geschrieben wurde
-
-            // Atomarer Dateitausch
-            input.close()
-            cipherOut.close()
-            output.close()
-
+            // Replace original file atomically
             if (file.delete()) {
                 if (tempFile.renameTo(file)) {
-                    // Schlüsselmaterial aus RAM löschen
+                    // Wipe key material from RAM
                     spec.clearPassword()
                     password.fill('\u0000')
                     secretKey.encoded.fill(0)
@@ -82,18 +66,26 @@ object CryptoUtils {
                 return false
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Encryption failed: ", e)
             return false
-        } finally {
-            // Fallback: Streams schließen, falls noch offen
-            try { cipherOut?.close() } catch (_: Exception) {}
-            try { output?.close() } catch (_: Exception) {}
-            try { input?.close() } catch (_: Exception) {}
         }
     }
 
     /**
-     * Nur zum Debuggen: Schreibt eine Testdatei ins Documents-Verzeichnis.
+     * Retrieves a display name for a file from its SAF Uri.
+     * Returns: filename or null
+     */
+    fun getFileNameFromUri(context: Context, uri: Uri): String? {
+        val cursor = context.contentResolver.query(uri, null, null, null, null)
+        return cursor?.use {
+            val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (it.moveToFirst() && nameIndex >= 0) it.getString(nameIndex) else null
+        }
+    }
+
+    /**
+     * For debugging only: Write a test dummy file to the app's Documents directory.
+     * Call this from your Activity to verify write permissions and path!
+     * Input: context
      */
     fun writeTestDummyFile(context: Context) {
         try {
@@ -109,3 +101,6 @@ object CryptoUtils {
         }
     }
 }
+
+
+

@@ -14,16 +14,14 @@ import java.io.FileOutputStream
 import android.view.Menu
 import android.view.MenuItem
 import androidx.fragment.app.FragmentManager
+import android.util.Log
+import android.os.Environment
 
 /**
  * MainActivity: Hosts the UI and manages file explorer integration for secure erasure.
  * Implements FileExplorer.OnFileSelectedListener to receive callbacks from the file explorer.
  */
 class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
-
-    /** UI components for progress and status display. */
-    private lateinit var progressBar: ProgressBar
-    private lateinit var statusText: TextView
 
     /** Volatile flag for background wipe cancellation. */
     @Volatile
@@ -35,6 +33,26 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
     private var fileExplorerFragment: FileExplorer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // ************************
+        // Debugging for Android 15
+        // Debug: Dummy-Datei schreiben & alle Dateien loggen
+        CryptoUtils.writeTestDummyFile(this)
+        val dir = this.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+        dir?.listFiles()?.forEach { file ->
+            Log.d("FileTest", "File: ${file.absolutePath}")
+        }
+        val testFile = File("/storage/emulated/0/Download/test123.txt")
+        try {
+            testFile.writeText("Test123")
+            Log.d("FileTest", "Schreiben erfolgreich!")
+        } catch (e: Exception) {
+            Log.e("FileTest", "Fehler beim Schreiben: ${e.message}")
+        }
+        // **********************
+        // **********************
+
+
+
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
@@ -60,10 +78,6 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
 
         // --- Ask for runtime storage permissions if required ---
         requestAllStoragePermissionsIfNeeded()
-
-        // --- Initialize views for progress/status display ---
-        progressBar = findViewById(R.id.progressBarWipe)
-        statusText = findViewById(R.id.textWipeStatus)
 
         // --- (Debug) Test: Try writing a dummy file to external storage ---
         CryptoUtils.writeTestDummyFile(this)
@@ -139,15 +153,20 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         // Create and show the modal StatusDialog
         val statusDialog = StatusDialog()
         statusDialog.isCancelable = false
+        // ************+
+        // DEBUGGING
+        val dialogAlreadyShown = supportFragmentManager.findFragmentByTag("StatusDialog")
+        Log.d("DialogTest", "StatusDialog im FragmentManager? $dialogAlreadyShown")
+        // ************
+
         statusDialog.show(supportFragmentManager, "StatusDialog")
 
         lifecycleScope.launch(Dispatchers.Main) {
             try {
                 // (1) Prompt for password, show progress
                 statusDialog.updateStatus("Waiting for password...", 0)
-                val password = withContext(Dispatchers.Main) {
-                    requestPassword(this@MainActivity, "Enter password for secure erase")
-                }
+                val password = requestPasswordDialog(this@MainActivity, "Enter password for secure erase")
+
                 if (password == null || password.isEmpty()) { // Check for CharArray must look like this
                     statusDialog.dismiss()
                     Toast.makeText(this@MainActivity, "No password entered, aborted.", Toast.LENGTH_SHORT).show()
@@ -200,7 +219,7 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
                 // Done
                 statusDialog.updateStatus("Done!", 100)
                 delay(700)
-                statusDialog.dismiss()
+                statusDialog.dismissAllowingStateLoss()
 
                 Toast.makeText(
                     this@MainActivity,
@@ -212,27 +231,21 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
                 fileExplorerFragment?.refreshCurrentDir()
 
             } catch (e: Exception) {
-                statusDialog.dismiss()
+                statusDialog.dismissAllowingStateLoss()
                 Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
 
     /**
-     * Triggers a double wipe of the free space and updates the progress/status bar.
-     * Wipes the free space in the Documents directory twice for improved forensics resistance.
+     * Triggers a double wipe of the free space.
+     * (Kein Fortschrittsdialog mehr in MainActivity!)
      */
     private fun doubleWipeWithProgress() {
         val documentsDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: filesDir
-        progressBar.progress = 0
-        progressBar.visibility = ProgressBar.VISIBLE
-        statusText.visibility = TextView.VISIBLE
-        statusText.text = "Wiping free space (2x)..."
         Thread {
             WipeUtils.doubleWipeFreeSpace(this@MainActivity, documentsDir)
             runOnUiThread {
-                progressBar.visibility = ProgressBar.GONE
-                statusText.text = "Secure deletion completed. If storage is not freed immediately, restart the device."
                 Toast.makeText(this@MainActivity, "Secure deletion completed.", Toast.LENGTH_LONG).show()
             }
         }.start()
@@ -240,24 +253,18 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
 
     /**
      * Starts the procedure to securely overwrite all available free space on internal storage.
-     * Shows a progress bar and estimated time remaining.
+     * No progress bar shown (can be re-added as Dialog falls nötig).
      */
     private fun startFreeSpaceWipe() {
         Toast.makeText(this, "Starting free space wipe...", Toast.LENGTH_SHORT).show()
         val targetDir = filesDir
-        val (total, free) = getStorageStats(targetDir)
-        progressBar.max = if (free < Int.MAX_VALUE) free.toInt() else Int.MAX_VALUE
-        progressBar.progress = 0
-        progressBar.visibility = ProgressBar.VISIBLE
-        statusText.visibility = TextView.VISIBLE
-        statusText.text = "Total: ${formatSize(total)}, Free: ${formatSize(free)}"
         wipeCancelled = false
         Thread {
-            val startTime = SystemClock.elapsedRealtime()
             val buffer = ByteArray(1024 * 1024)
             val rnd = java.security.SecureRandom()
             var written = 0L
             var idx = 0
+            val (total, free) = getStorageStats(targetDir)
             val wipeDir = File(targetDir, "wipe_tmp")
             if (!wipeDir.exists()) wipeDir.mkdirs()
             var cancelled = false
@@ -276,13 +283,6 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
                             out.write(buffer)
                             written += buffer.size
                             fileWritten += buffer.size
-                            runOnUiThread {
-                                progressBar.progress = minOf(written, free).toInt()
-                                val percent = 100 * written / free
-                                val elapsed = SystemClock.elapsedRealtime() - startTime
-                                val eta = if (written > 0) elapsed * (free - written) / written else 0
-                                statusText.text = "Wiping: $percent% - ${formatSize(written)} / ${formatSize(free)}\nETA: ${formatTime(eta)}"
-                            }
                         }
                     }
                 }
@@ -292,11 +292,14 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
             val cleaned = WipeUtils.cleanWipeDummyFiles(targetDir)
             wipeDir.deleteRecursively()
             runOnUiThread {
-                progressBar.visibility = ProgressBar.GONE
-                statusText.text = if (!cancelled)
-                    "Wipe done! Freed ${formatSize(written)}. If storage is not freed immediately, restart the device."
-                else
-                    "Wipe cancelled! Cleaned up $cleaned files. Restart device if storage appears full."
+                Toast.makeText(
+                    this@MainActivity,
+                    if (!cancelled)
+                        "Wipe done! Freed ${formatSize(written)}. If storage is not freed immediately, restart the device."
+                    else
+                        "Wipe cancelled! Cleaned up $cleaned files. Restart device if storage appears full.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }.start()
     }
