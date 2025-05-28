@@ -2,18 +2,14 @@ package com.example.cryptographiceraser
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.os.Build
-import android.os.Bundle
-import android.os.Environment
-import android.os.StatFs
+import android.os.*
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 import java.io.File
-import android.os.SystemClock
 import java.io.FileOutputStream
 import android.view.Menu
 import android.view.MenuItem
@@ -34,6 +30,9 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
     private var wipeCancelled = false
 
     private val STORAGE_PERMISSION_REQUEST_CODE = 1001
+
+    // Keep a reference to the currently displayed FileExplorer fragment for refreshing
+    private var fileExplorerFragment: FileExplorer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,7 +90,12 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
      * Required by FileExplorer.OnFileSelectedListener. Called when user selects files for shredding.
      */
     override fun onFilesSelected(selectedFiles: List<File>) {
-        handleSelectedFiles(selectedFiles)
+        // Call CryptoShred workflow with integrated modal status dialog
+        if (selectedFiles.isNotEmpty()) {
+            cryptoShredFiles(selectedFiles)
+        } else {
+            Toast.makeText(this, "No file selected.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /**
@@ -116,6 +120,7 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         // Create fragment and set the file selection listener
         val fragment = FileExplorer()
         fragment.setOnFileSelectedListener(this)
+        fileExplorerFragment = fragment
         // Show fragment in fragment_container (must be defined in your layout)
         supportFragmentManager.beginTransaction()
             .replace(R.id.fragment_container, fragment, "FileExplorer")
@@ -124,44 +129,91 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
     }
 
     /**
-     * Handles encryption and secure deletion for selected files.
-     * @param selectedFiles List of files the user has selected.
+     * Handles the CryptoShred workflow:
+     * (1) Encryption of the file(s)
+     * (2) Deletion of key material and file(s)
+     * (3) Double-wipe of free storage
+     * Shows a modal, blocking status dialog and updates progress.
      */
-    private fun handleSelectedFiles(selectedFiles: List<File>) {
-        if (selectedFiles.isEmpty()) {
-            Toast.makeText(this, "No file selected.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        // Run encryption and deletion asynchronously (do not block UI)
-        lifecycleScope.launch {
-            val password = requestPassword(this@MainActivity, "Enter password for secure erase")
-            if (password != null && password.isNotEmpty()) {
+    private fun cryptoShredFiles(selectedFiles: List<File>) {
+        // Create and show the modal StatusDialog
+        val statusDialog = StatusDialog()
+        statusDialog.isCancelable = false
+        statusDialog.show(supportFragmentManager, "StatusDialog")
+
+        lifecycleScope.launch(Dispatchers.Main) {
+            try {
+                // (1) Prompt for password, show progress
+                statusDialog.updateStatus("Waiting for password...", 0)
+                val password = withContext(Dispatchers.Main) {
+                    requestPassword(this@MainActivity, "Enter password for secure erase")
+                }
+                if (password == null || password.isEmpty()) { // Check for CharArray must look like this
+                    statusDialog.dismiss()
+                    Toast.makeText(this@MainActivity, "No password entered, aborted.", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+
+                // (2) Encryption step
+                statusDialog.updateStatus("Encrypting file(s)...", 15)
                 var successCount = 0
                 var failedCount = 0
-                for (file in selectedFiles) {
-                    val encryptionSuccess = CryptoUtils.encryptFileInPlace(this@MainActivity, file, password)
-                    if (encryptionSuccess) {
-                        val deleted = file.delete()
-                        if (deleted) {
-                            successCount++
-                        } else {
-                            failedCount++
-                            Toast.makeText(this@MainActivity, "Failed to delete file: ${file.name}", Toast.LENGTH_SHORT).show()
-                        }
+                for ((i, file) in selectedFiles.withIndex()) {
+                    val ok = withContext(Dispatchers.IO) {
+                        CryptoUtils.encryptFileInPlace(this@MainActivity, file, password)
+                    }
+                    if (ok) {
+                        successCount++
+                        // Fortschritt pro Datei
+                        statusDialog.updateStatus(
+                            "Encrypted ${file.name} (${i + 1}/${selectedFiles.size})...",
+                            15 + (70 * (i + 1) / selectedFiles.size)
+                        )
                     } else {
                         failedCount++
-                        Toast.makeText(this@MainActivity, "Failed to encrypt: ${file.name}", Toast.LENGTH_SHORT).show()
+                        statusDialog.updateStatus(
+                            "Failed to encrypt ${file.name}!",
+                            15 + (70 * (i + 1) / selectedFiles.size)
+                        )
                     }
                 }
+
+                // (3) Deletion step
+                statusDialog.updateStatus("Deleting encryption key(s) and file(s)...", 85)
+                for (file in selectedFiles) {
+                    withContext(Dispatchers.IO) { file.delete() }
+                }
+
+                // (4) Double wipe step
+                statusDialog.updateStatus("Wiping free space (1/2)...", 92)
+                val documentsDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: filesDir
+                withContext(Dispatchers.IO) {
+                    WipeUtils.doubleWipeFreeSpace(this@MainActivity, documentsDir)
+                    Unit
+                }
+                statusDialog.updateStatus("Wiping free space (2/2)...", 97)
+                withContext(Dispatchers.IO) {
+                    WipeUtils.doubleWipeFreeSpace(this@MainActivity, documentsDir)
+                    Unit
+                }
+
+                // Done
+                statusDialog.updateStatus("Done!", 100)
+                delay(700)
+                statusDialog.dismiss()
+
                 Toast.makeText(
                     this@MainActivity,
-                    "$successCount of ${selectedFiles.size} files encrypted and deleted. $failedCount failed.",
+                    "$successCount of ${selectedFiles.size} files crypto-shredded. $failedCount failed.",
                     Toast.LENGTH_LONG
                 ).show()
-                // Optional: Double-wipe free space
-                doubleWipeWithProgress()
-            } else {
-                Toast.makeText(this@MainActivity, "No password entered, aborted.", Toast.LENGTH_SHORT).show()
+
+                // Refresh the FileExplorer view if present
+                fileExplorerFragment?.refreshCurrentDir()
+
+            } catch (e: Exception) {
+                statusDialog.dismiss()
+                Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
