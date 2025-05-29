@@ -6,43 +6,35 @@ import android.text.InputType
 import android.widget.EditText
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
+import android.util.Log
+import android.app.Activity
+import androidx.appcompat.app.AppCompatActivity
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
-/**
- * Shows a password dialog and returns the entered password as a CharArray.
- * Input: Context (required for Dialog), dialog title (String, optional)
- * Output: CharArray with the entered password, or null if canceled.
- * Usage: Must be called from a coroutine (suspend).
- */
-suspend fun requestPassword(
-    context: Context,
+var lastDialog: AlertDialog? = null
+
+suspend fun requestPasswordDialog(
+    activity: AppCompatActivity,
     title: String = "Enter password for shredding"
 ): CharArray? = suspendCancellableCoroutine { continuation ->
-    // Create password EditText
-    val input = EditText(context).apply {
-        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        hint = "Password"
+    val fragmentManager = activity.supportFragmentManager
+
+    val passwordDialog = PasswordDialogFragment()
+    passwordDialog.title = title
+    passwordDialog.callback = object : PasswordDialogFragment.PasswordCallback {
+        override fun onPasswordEntered(password: CharArray) {
+            if (continuation.isActive) continuation.resume(password)
+        }
+        override fun onPasswordCancelled() {
+            if (continuation.isActive) continuation.resume(null)
+        }
     }
-    // Build the dialog
-    val dialog = AlertDialog.Builder(context)
-        .setTitle(title)
-        .setView(input)
-        .setCancelable(true)
-        .setPositiveButton("OK") { _, _ ->
-            continuation.resume(input.text.toString().toCharArray())
-        }
-        .setNegativeButton("Cancel") { _, _ ->
-            continuation.resume(null)
-        }
-        .setOnCancelListener {
-            continuation.resume(null)
-        }
-        .create()
-    dialog.show()
+    passwordDialog.show(fragmentManager, "PasswordDialogFragment")
 }
 
 /**
  * Shows an information dialog explaining Android storage and deletion restrictions.
- * Call this from your activity, for example on FAQ or Info menu selection.
  *
  * @param context The context to use for showing the dialog.
  */

@@ -62,6 +62,12 @@
                 android:text="SD Card (Total / Free): 0 GB / 0 GB"/>
         </LinearLayout>
     </LinearLayout>
+    <!-- File Explorer -->
+    <FrameLayout
+        android:id="@+id/fragment_container"
+        android:layout_width="match_parent"
+        android:layout_height="300dp"/>
+    <!-- Button for file single selection Android >9 -->
 
     <!-- Button for single file selection -->
     <Button
@@ -84,23 +90,4 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:text="Wipe Free Space" />
-
-    <ProgressBar
-        android:id="@+id/progressBarWipe"
-        android:layout_width="250dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:visibility="gone"
-        style="?android:attr/progressBarStyleHorizontal"/>
-
-    <TextView
-        android:id="@+id/textWipeStatus"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text=""
-        android:textSize="14sp"
-        android:visibility="gone"/>
-
-
 </LinearLayout>

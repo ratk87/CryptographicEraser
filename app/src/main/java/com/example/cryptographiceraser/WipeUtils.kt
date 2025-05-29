@@ -6,29 +6,24 @@ import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import android.os.StatFs
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 
-/**
- * Utility object for securely overwriting ("wiping") free space in app-accessible directories.
- * Handles both internal and external (SD card) app-specific storage.
- */
 object WipeUtils {
 
     private const val TAG = "WipeUtils"
 
     /**
-     * Securely overwrites all available free space in the given directory by writing
-     * dummy files filled with random data until no space remains.
-     *
-     * Input: context (required for SecureRandom), directory (File)
-     * Output: total number of bytes written (Int, for debugging)
+     * Überschreibt freien Speicherplatz in jedem beliebigen Verzeichnis – mit MANAGE_EXTERNAL_STORAGE jetzt auch außerhalb des Sandboxes!
      */
-    fun wipeFreeSpaceInDirectory(context: Context, directory: File): Int {
+    fun wipeFreeSpaceInDirectory(context: Context, directory: File): Long {
         val wipeDir = File(directory, "wipe_tmp")
         if (!wipeDir.exists()) wipeDir.mkdirs()
         val buffer = ByteArray(1024 * 1024) // 1 MiB blocks
         val rnd = java.security.SecureRandom()
         var fileIndex = 0
-        var totalBytesWritten = 0
+        var totalBytesWritten: Long = 0
 
         try {
             while (true) {
@@ -51,24 +46,13 @@ object WipeUtils {
         return totalBytesWritten
     }
 
-    /**
-     * Performs the wipe twice for added security.
-     * Each wipe cycle overwrites the free space with dummy data and deletes all dummy files.
-     *
-     * Input: context, directory
-     */
     fun doubleWipeFreeSpace(context: Context, directory: File) {
-        repeat(2) { round ->
+        repeat(2) { _ ->
             wipeFreeSpaceInDirectory(context, directory)
             cleanWipeDummyFiles(directory)
         }
     }
 
-    /**
-     * Deletes all dummy files created during the wipe process in the specified directory.
-     * Input: directory (File)
-     * Output: number of files deleted (Int)
-     */
     fun cleanWipeDummyFiles(directory: File): Int {
         val wipeDir = File(directory, "wipe_tmp")
         var count = 0
@@ -76,17 +60,12 @@ object WipeUtils {
             wipeDir.listFiles()?.forEach { file ->
                 if (file.delete()) count++
             }
-            wipeDir.delete() // delete the folder itself if empty
+            wipeDir.delete()
         }
         return count
     }
 
-    /**
-     * Wipes free space in both internal and external app-specific directories (if available).
-     * Input: context
-     * Output: Pair of total bytes written (internal, external)
-     */
-    fun wipeFreeSpaceAll(context: Context): Pair<Int, Int> {
+    fun wipeFreeSpaceAll(context: Context): Pair<Long, Long> {
         val internalDir = context.filesDir
         val bytesInternal = wipeFreeSpaceInDirectory(context, internalDir)
 
@@ -99,20 +78,27 @@ object WipeUtils {
         return Pair(bytesInternal, bytesExternal)
     }
 
-    /**
-     * Reports available free space in the given directory, in bytes.
-     * Input: directory (File)
-     * Output: available space (Long)
-     */
     fun getAvailableSpace(directory: File): Long {
         return directory.usableSpace
     }
 
-    /** Returns total and free space (bytes) for a directory */
     fun getStorageStats(directory: File): Pair<Long, Long> {
         val stat = StatFs(directory.absolutePath)
         val total = stat.blockCountLong * stat.blockSizeLong
         val free = stat.availableBlocksLong * stat.blockSizeLong
         return Pair(total, free)
+    }
+
+    fun wipeFreeSpaceWithFeedback(context: Context, directory: File) {
+        Thread {
+            doubleWipeFreeSpace(context, directory)
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(
+                    context,
+                    "Wipe done! If storage is not freed immediately, restart the device.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }.start()
     }
 }
