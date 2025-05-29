@@ -69,6 +69,7 @@
         android:layout_height="300dp"/>
     <!-- Button for file single selection Android >9 -->
 
+
     <!-- Button for single file selection -->
     <Button
         android:id="@+id/btnShredSingle"
@@ -76,7 +77,8 @@
         android:layout_height="wrap_content"
         android:text="Shred Single File" />
 
-    <!-- Button for multiple file selection -->
+
+    <!-- Button for multiple file selection-->
     <Button
         android:id="@+id/btnShredMultiple"
         android:layout_width="wrap_content"
@@ -90,4 +92,10 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:text="Wipe Free Space" />
+
+    <Button
+        android:id="@+id/btnDebugDecrypt"
+        android:text="Debug: Entschlüsseln und Prüfen"
+        android:visibility="gone" android:layout_height="wrap_content" android:layout_width="wrap_content"/>
+
 </LinearLayout>
