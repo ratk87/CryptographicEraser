@@ -67,6 +67,13 @@
         android:id="@+id/fragment_container"
         android:layout_width="match_parent"
         android:layout_height="300dp"/>
+    <!-- Button for file single selection Android >9 -->
+    <Button
+        android:id="@+id/btnSafPickFile"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Pick File (SAF)"
+        android:layout_marginTop="16dp"/>
 
     <!-- Button for single file selection -->
     <Button

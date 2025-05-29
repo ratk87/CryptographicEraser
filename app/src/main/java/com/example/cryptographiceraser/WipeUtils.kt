@@ -6,6 +6,9 @@ import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import android.os.StatFs
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 
 /**
  * Utility object for securely overwriting ("wiping") free space in app-accessible directories.
@@ -18,17 +21,15 @@ object WipeUtils {
     /**
      * Securely overwrites all available free space in the given directory by writing
      * dummy files filled with random data until no space remains.
-     *
-     * Input: context (required for SecureRandom), directory (File)
-     * Output: total number of bytes written (Int, for debugging)
+     * Only works for directories where the app has write access.
      */
-    fun wipeFreeSpaceInDirectory(context: Context, directory: File): Int {
+    fun wipeFreeSpaceInDirectory(context: Context, directory: File): Long {
         val wipeDir = File(directory, "wipe_tmp")
         if (!wipeDir.exists()) wipeDir.mkdirs()
         val buffer = ByteArray(1024 * 1024) // 1 MiB blocks
         val rnd = java.security.SecureRandom()
         var fileIndex = 0
-        var totalBytesWritten = 0
+        var totalBytesWritten: Long = 0
 
         try {
             while (true) {
@@ -66,8 +67,7 @@ object WipeUtils {
 
     /**
      * Deletes all dummy files created during the wipe process in the specified directory.
-     * Input: directory (File)
-     * Output: number of files deleted (Int)
+     * Returns number of files deleted.
      */
     fun cleanWipeDummyFiles(directory: File): Int {
         val wipeDir = File(directory, "wipe_tmp")
@@ -86,7 +86,7 @@ object WipeUtils {
      * Input: context
      * Output: Pair of total bytes written (internal, external)
      */
-    fun wipeFreeSpaceAll(context: Context): Pair<Int, Int> {
+    fun wipeFreeSpaceAll(context: Context): Pair<Long, Long> {
         val internalDir = context.filesDir
         val bytesInternal = wipeFreeSpaceInDirectory(context, internalDir)
 
@@ -101,8 +101,6 @@ object WipeUtils {
 
     /**
      * Reports available free space in the given directory, in bytes.
-     * Input: directory (File)
-     * Output: available space (Long)
      */
     fun getAvailableSpace(directory: File): Long {
         return directory.usableSpace
@@ -114,5 +112,24 @@ object WipeUtils {
         val total = stat.blockCountLong * stat.blockSizeLong
         val free = stat.availableBlocksLong * stat.blockSizeLong
         return Pair(total, free)
+    }
+
+
+    /**
+     * Convenient method to wipe free space (double wipe), on a background thread,
+     * and then notify the user via Toast on the UI thread.
+     */
+    fun wipeFreeSpaceWithFeedback(context: Context, directory: File) {
+        Thread {
+            doubleWipeFreeSpace(context, directory)
+            // Switch to UI thread for Toast
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(
+                    context,
+                    "Wipe done! If storage is not freed immediately, restart the device.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }.start()
     }
 }
