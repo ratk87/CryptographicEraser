@@ -19,6 +19,8 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
+import android.provider.Settings
+
 
 /**
  * MainActivity: Hosts the UI and manages file explorer integration for secure erasure.
@@ -34,26 +36,8 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
     private var fileExplorerFragment: FileExplorer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Debugging only: Write dummy file & log files in Documents
-        CryptoUtils.writeTestDummyFile(this)
-        val dir = this.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-        dir?.listFiles()?.forEach { file ->
-            Log.d("FileTest", "File: ${file.absolutePath}")
-        }
-        val testFile = File("/storage/emulated/0/Download/test123.txt")
-        try {
-            testFile.writeText("Test123")
-            Log.d("FileTest", "Schreiben erfolgreich!")
-        } catch (e: Exception) {
-            Log.e("FileTest", "Fehler beim Schreiben: ${e.message}")
-        }
-
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
-        // Show a message to the user about file access limitations
-        showScopedStorageInfoIfNeeded()
-
         // --- Initialize UI views ---
         val textInternalStorage = findViewById<TextView>(R.id.textInternalStorage)
         val externalStorageRow = findViewById<LinearLayout>(R.id.externalStorageRow)
@@ -72,23 +56,23 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         }
 
         // --- Ask for runtime storage permissions if required ---
-        requestAllStoragePermissionsIfNeeded()
+        requestAllFilesAccessIfNeeded()
 
-        // --- Button: Shred single file (classic, only for Android < 10) ---
         findViewById<Button>(R.id.btnShredSingle).setOnClickListener {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            if (hasAllFilesAccess()) {
                 openFileExplorer(singleSelection = true)
             } else {
-                Toast.makeText(this, "Use 'Pick File (SAF)' on Android 10+!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Bitte 'Alle Dateien'-Berechtigung aktivieren!", Toast.LENGTH_LONG).show()
+                requestAllFilesAccessIfNeeded()
             }
         }
 
-        // --- Button: Shred multiple files (classic, only for Android < 10) ---
         findViewById<Button>(R.id.btnShredMultiple).setOnClickListener {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            if (hasAllFilesAccess()) {
                 openFileExplorer(singleSelection = false)
             } else {
-                Toast.makeText(this, "Use 'Pick File (SAF)' on Android 10+!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Bitte 'Alle Dateien'-Berechtigung aktivieren!", Toast.LENGTH_LONG).show()
+                requestAllFilesAccessIfNeeded()
             }
         }
 
@@ -96,13 +80,6 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         findViewById<Button>(R.id.btnWipe).setOnClickListener {
             val targetDir = filesDir // or getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
             WipeUtils.wipeFreeSpaceWithFeedback(this, targetDir)
-        }
-
-        // --- Button: Pick file via SAF for secure erasure (for Android 10+) ---
-        // Make sure you have a Button in your activity_main.xml:
-        // <Button android:id="@+id/btnSafPickFile" ... android:text="Pick File (SAF)" />
-        findViewById<Button>(R.id.btnSafPickFile)?.setOnClickListener {
-            openSafFilePicker()
         }
     }
 
@@ -124,11 +101,20 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
      * Only used on Android < 10.
      */
     private fun openFileExplorer(singleSelection: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            Toast.makeText(this, "Use 'Pick File (SAF)' for Android 10+!", Toast.LENGTH_SHORT).show()
+        // Für Android 11+ (API 30) reicht MANAGE_EXTERNAL_STORAGE, alte Berechtigungen sind dann nicht mehr relevant
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Keine zusätzliche Abfrage für WRITE_EXTERNAL_STORAGE!
+            supportFragmentManager.popBackStack("FileExplorer", FragmentManager.POP_BACK_STACK_INCLUSIVE)
+            val fragment = FileExplorer()
+            fragment.setOnFileSelectedListener(this)
+            fileExplorerFragment = fragment
+            supportFragmentManager.beginTransaction()
+                .replace(R.id.fragment_container, fragment, "FileExplorer")
+                .addToBackStack("FileExplorer")
+                .commit()
             return
         }
-        // Check permissions for legacy Android
+        // Für Android 6 - 10: Prüfe klassische Storage-Permission!
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
             != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(
@@ -147,6 +133,7 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
             .addToBackStack("FileExplorer")
             .commit()
     }
+
 
     /**
      * Handles the CryptoShred workflow for classic File access (Android < 10):
@@ -234,121 +221,9 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         startActivityForResult(intent, SAF_PICK_FILE_REQUEST_CODE)
     }
 
-    /**
-     * Handle result from SAF file picker.
-     * On Android 10+ this is the secure erase workflow for files outside the app sandbox.
-     */
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == SAF_PICK_FILE_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
-            val uri: Uri? = data?.data
-            if (uri != null) {
-                cryptoShredContentUri(uri)
-            }
-        }
-    }
 
-    /**
-     * Workflow for CryptoShred via SAF/Content URI.
-     * (1) Prompts for password
-     * (2) Encrypts file via Content URI
-     * (3) Deletes file via Content URI (where possible)
-     * (4) Wipes free space in the app's sandbox
-     */
-    private fun cryptoShredContentUri(uri: Uri) {
-        val fileName = CryptoUtils.getFileNameFromUri(this, uri) ?: uri.toString()
-        val statusDialog = StatusDialog()
-        statusDialog.isCancelable = false
-        statusDialog.show(supportFragmentManager, "StatusDialog")
-
-        lifecycleScope.launch(Dispatchers.Main) {
-            try {
-                statusDialog.updateStatus("Waiting for password...", 0)
-                val password = requestPasswordDialog(this@MainActivity, "Enter password for secure erase")
-                if (password == null || password.isEmpty()) {
-                    statusDialog.dismissAllowingStateLoss()
-                    Toast.makeText(this@MainActivity, "No password entered, aborted.", Toast.LENGTH_SHORT).show()
-                    return@launch
-                }
-
-                statusDialog.updateStatus("Encrypting $fileName...", 25)
-                val success = withContext(Dispatchers.IO) {
-                    CryptoUtils.encryptContentUriInPlace(this@MainActivity, uri, password)
-                }
-
-                if (success) {
-                    statusDialog.updateStatus("Encrypted $fileName, deleting...", 70)
-                    val deleted = withContext(Dispatchers.IO) {
-                        CryptoUtils.deleteByContentUri(this@MainActivity, uri)
-                    }
-                    statusDialog.updateStatus(
-                        when {
-                            deleted -> "Deleted ($fileName)."
-                            success -> "File has been encrypted, but Deletion not possible due to Scoped Storage, pls delete manually and then wipe the free storage.)."
-                            else -> "Deletion Failed!"
-                        },
-                        85
-                    )
-                } else {
-                    statusDialog.updateStatus("Encryption failed!", 50)
-                }
-
-                // Optionally, wipe app's free space for extra safety
-                statusDialog.updateStatus("Wiping free space...", 92)
-                val documentsDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: filesDir
-                withContext(Dispatchers.IO) {
-                    WipeUtils.doubleWipeFreeSpace(this@MainActivity, documentsDir)
-                }
-                statusDialog.updateStatus("Done!", 100)
-                delay(700)
-                statusDialog.dismissAllowingStateLoss()
-
-                val message = when {
-                    success -> {
-                        val deleted = withContext(Dispatchers.IO) {
-                            CryptoUtils.deleteByContentUri(this@MainActivity, uri)
-                        }
-                        when {
-                            deleted -> " File deleted after encryption(crypto-shredded)!"
-                            else -> "File has been encrypted but could not be deleted due to Androids' restrictions.!"
-                        }
-                    }
-                    else -> "Crypto-shred failed for $fileName."
-                }
-                Toast.makeText(
-                    this@MainActivity,
-                    message,
-                    Toast.LENGTH_LONG
-                ).show()
-            } catch (e: Exception) {
-                statusDialog.dismissAllowingStateLoss()
-                Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
+    // HELPER FUNCTIONS
     // --------------------------------------------------------------------------
-
-    /**
-     * Shows information dialog to user about Scoped Storage depending on Android version.
-     */
-    private fun showScopedStorageInfoIfNeeded() {
-        val versionStr = DeviceUtils.getAndroidVersionString()
-        val isScoped = DeviceUtils.isScopedStorageEnforced()
-        val message = if (isScoped) {
-            "$versionStr detected.\n\n" +
-                    "Please be aware that due to Scoped Storage, file access is limited. " +
-                    "The app can only securely delete files that were created by this app, or files that you explicitly select via the Storage Access Framework (SAF)."
-        } else {
-            "$versionStr detected.\n\nNo file access limitations – the app should fully work as intended."
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Notice: File Access Limitations")
-            .setMessage(message)
-            .setPositiveButton("OK", null)
-            .show()
-    }
-
     private fun getStorageStats(directory: File): Pair<Long, Long> {
         val stat = StatFs(directory.absolutePath)
         val total = stat.blockCountLong * stat.blockSizeLong
@@ -396,27 +271,20 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         }
     }
 
-    /**
-     * Checks and requests runtime storage permissions (Play Store compliant).
-     * On Android 13+ requests new media permissions. On older versions requests legacy storage permissions.
-     */
-    private fun requestAllStoragePermissionsIfNeeded() {
-        val perms = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13+
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED)
-                perms.add(Manifest.permission.READ_MEDIA_IMAGES)
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) != PackageManager.PERMISSION_GRANTED)
-                perms.add(Manifest.permission.READ_MEDIA_VIDEO)
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) != PackageManager.PERMISSION_GRANTED)
-                perms.add(Manifest.permission.READ_MEDIA_AUDIO)
-        } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED)
-                perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED)
-                perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        }
-        if (perms.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, perms.toTypedArray(), STORAGE_PERMISSION_REQUEST_CODE)
+    // Prüft, ob MANAGE_EXTERNAL_STORAGE vorliegt
+    private fun hasAllFilesAccess(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else true // Für Android < 11 nicht relevant
+    }
+
+    // Fordert Permission an, wenn nicht vorhanden
+    private fun requestAllFilesAccessIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !hasAllFilesAccess()) {
+            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+            intent.data = Uri.parse("package:$packageName")
+            startActivity(intent)
+            Toast.makeText(this, "Bitte erlaube den Zugriff auf alle Dateien, um sichere Löschung zu ermöglichen!", Toast.LENGTH_LONG).show()
         }
     }
 
