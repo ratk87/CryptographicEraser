@@ -8,7 +8,6 @@ import java.io.FileOutputStream
 import android.os.StatFs
 import android.os.Handler
 import android.os.Looper
-import android.widget.Toast
 
 object WipeUtils {
 
