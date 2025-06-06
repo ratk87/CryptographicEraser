@@ -71,7 +71,7 @@ class CryptoEraseController(
         statusDialog = null
     }
 
-    // Passwortdialog anzeigen
+    // Show Password Dialog
     private fun showPasswordDialog(callback: (CharArray?) -> Unit) {
         val passDialog = Dialog().apply {
             dialogType = Dialog.Type.PASSWORD
@@ -79,4 +79,20 @@ class CryptoEraseController(
         }
         passDialog.show(fragmentManager, "PasswordDialog")
     }
+
+    fun startWipeFreeSpace(
+        dir: File,
+        onProgress: (String, Int) -> Unit,
+        onDone: () -> Unit
+    ) {
+        onProgress("Bereinige freien Speicher...", 0)
+        // Starte den Prozess, UI-Update kommt direkt über den Callback
+        WipeUtils.wipeFreeSpaceWithFeedback(context, dir) { progress ->
+            onProgress("Bereinige freien Speicher... $progress%", progress)
+            if (progress >= 100) {
+                onDone()
+            }
+        }
+    }
+
 }

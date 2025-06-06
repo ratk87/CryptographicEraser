@@ -89,16 +89,45 @@ object WipeUtils {
         return Pair(total, free)
     }
 
-    fun wipeFreeSpaceWithFeedback(context: Context, directory: File) {
+    fun wipeFreeSpaceWithFeedback(
+        context: Context,
+        directory: File,
+        onProgress: (Int) -> Unit
+    ) {
         Thread {
-            doubleWipeFreeSpace(context, directory)
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(
-                    context,
-                    "Wipe done! If storage is not freed immediately, restart the device.",
-                    Toast.LENGTH_LONG
-                ).show()
+            val wipeDir = File(directory, "wipe_tmp")
+            if (!wipeDir.exists()) wipeDir.mkdirs()
+            val buffer = ByteArray(1024 * 1024) // 1 MiB
+            val rnd = java.security.SecureRandom()
+            var fileIndex = 0
+            var totalBytesWritten = 0L
+            val totalSpace = directory.usableSpace
+
+            try {
+                loop@ while (true) {
+                    val dummyFile = File(wipeDir, "wipe_dummy_$fileIndex.bin")
+                    fileIndex++
+                    FileOutputStream(dummyFile).use { out ->
+                        while (true) {
+                            rnd.nextBytes(buffer)
+                            out.write(buffer)
+                            totalBytesWritten += buffer.size
+                            val percent = ((totalBytesWritten * 100) / totalSpace).coerceAtMost(100)
+                            Handler(Looper.getMainLooper()).post { onProgress(percent.toInt()) }
+                            if (dummyFile.length() > 100 * 1024 * 1024) break
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Kein Platz mehr = Ende!
             }
+            // Nach dem Wipe auf 100% stellen
+            Handler(Looper.getMainLooper()).post { onProgress(100) }
+            // Aufräumen
+            wipeDir.listFiles()?.forEach { it.delete() }
+            wipeDir.delete()
         }.start()
     }
+
+
 }
