@@ -6,6 +6,8 @@ import android.os.Environment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
+import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -18,6 +20,8 @@ import java.io.File
 class FileExplorer : Fragment() {
 
     private var fileSelectedListener: OnFileSelectedListener? = null
+    private lateinit var textCurrentPath: TextView
+
 
     // RecyclerView for displaying files and folders
     private lateinit var recyclerView: RecyclerView
@@ -52,14 +56,19 @@ class FileExplorer : Fragment() {
         val view = inflater.inflate(R.layout.file_explorer, container, false)
         recyclerView = view.findViewById(R.id.recyclerViewFiles)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
+        textCurrentPath = view.findViewById(R.id.textCurrentPath)
         loadFiles(currentDir)
+
+        // Button nach oben
+        val btnGoUp = view.findViewById<Button>(R.id.btnGoUp)
+        btnGoUp.setOnClickListener {
+            goUp()
+        }
+        btnGoUp.visibility = if (currentDir.parentFile != null) View.VISIBLE else View.GONE
+
         return view
     }
 
-    /**
-     * Loads and displays all files/folders in the given directory.
-     * Shows folders first, then files, both alphabetically sorted.
-     */
     private fun loadFiles(dir: File) {
         currentDir = dir
         val files = dir.listFiles()?.sortedWith(compareBy({ !it.isDirectory }, { it.name })) ?: emptyList()
@@ -67,17 +76,24 @@ class FileExplorer : Fragment() {
             files,
             onDirClick = { loadFiles(it) },
             onCryptoShredClick = { file ->
-                // Pass the file to MainActivity for CryptoShred (encrypt+delete+wipe)
                 fileSelectedListener?.onFilesSelected(listOf(file))
             }
         )
+        // Button anzeigen/ausblenden
+        view?.findViewById<Button>(R.id.btnGoUp)?.visibility = if (currentDir.parentFile != null) View.VISIBLE else View.GONE
+        // **Aktuellen Pfad anzeigen**
+        textCurrentPath.text = "Pfad: ${currentDir.absolutePath}"
     }
+
 
     /**
      * Allows navigation one directory up.
      */
     fun goUp() {
         val parent = currentDir.parentFile ?: return
+        // Verhindere Navigation über das User-Storage-Root hinaus
+        val storageRoot = Environment.getExternalStorageDirectory()
+        if (parent.absolutePath.length < storageRoot.absolutePath.length) return
         loadFiles(parent)
     }
 

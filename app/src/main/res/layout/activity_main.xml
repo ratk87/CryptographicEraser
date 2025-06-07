@@ -71,18 +71,10 @@
 
     <!-- Button for single file selection -->
     <Button
-        android:id="@+id/btnShredSingle"
+        android:id="@+id/btnShredFile"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Shred Single File" />
-
-    <!-- Button for multiple file selection -->
-    <Button
-        android:id="@+id/btnShredMultiple"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Shred Multiple Files" />
+        android:text="Shred File" />
     <!-- Button for wiping the free space -->
     <Button
         android:id="@+id/btnWipe"

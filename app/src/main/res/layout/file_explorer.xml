@@ -1,7 +1,29 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical" android:layout_width="match_parent" android:layout_height="match_parent">
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- Button für eine Ebene nach oben -->
+    <Button
+        android:id="@+id/btnGoUp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⬆️ Eine Ebene nach oben" />
+
+    <!-- Aktueller Pfad -->
+    <TextView
+        android:id="@+id/textCurrentPath"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Pfad: /"
+        android:textAppearance="?android:attr/textAppearanceSmall"
+        android:padding="8dp"
+        android:ellipsize="start"
+        android:singleLine="true"/>
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerViewFiles"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"/>
+        android:layout_height="0dp"
+        android:layout_weight="1"/>
 </LinearLayout>
