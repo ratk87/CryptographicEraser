@@ -64,23 +64,6 @@ object WipeUtils {
         return count
     }
 
-    fun wipeFreeSpaceAll(context: Context): Pair<Long, Long> {
-        val internalDir = context.filesDir
-        val bytesInternal = wipeFreeSpaceInDirectory(context, internalDir)
-
-        val externalDir = context.getExternalFilesDir(null)
-        val bytesExternal = if (externalDir != null && Environment.getExternalStorageState(externalDir) == Environment.MEDIA_MOUNTED) {
-            wipeFreeSpaceInDirectory(context, externalDir)
-        } else {
-            0
-        }
-        return Pair(bytesInternal, bytesExternal)
-    }
-
-    fun getAvailableSpace(directory: File): Long {
-        return directory.usableSpace
-    }
-
     fun getStorageStats(directory: File): Pair<Long, Long> {
         val stat = StatFs(directory.absolutePath)
         val total = stat.blockCountLong * stat.blockSizeLong
