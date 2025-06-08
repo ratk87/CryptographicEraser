@@ -1,167 +1,230 @@
 package com.example.cryptographiceraser
 
+import android.Manifest
+import android.app.AlertDialog
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.widget.*
+import android.os.Environment
+import android.provider.Settings
+import android.view.Menu
+import android.view.MenuItem
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import java.io.File
-import android.view.Menu
-import android.view.MenuItem
-import androidx.appcompat.app.AlertDialog
 
 class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
 
+    companion object {
+        private const val STORAGE_PERMISSION_REQUEST_CODE = 1001
+    }
+
     private lateinit var controller: CryptoEraseController
+    private var statusDialog: Dialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Controller
+        // 1) Laufzeit‐Berechtigungen sicherstellen
+        ensureStoragePermissions()
+
+        // 2) Controller initialisieren
         controller = CryptoEraseController(
             context = this,
             fragmentManager = supportFragmentManager,
             lifecycleScope = lifecycleScope
         )
 
-        // UI-Elements
-        val textInternalStorage = findViewById<TextView>(R.id.textInternalStorage)
-        val externalStorageRow = findViewById<LinearLayout>(R.id.externalStorageRow)
-        val textExternalStorage = findViewById<TextView>(R.id.textExternalStorage)
+        // 3) UI‐Elemente referenzieren
+        val textInternal = findViewById<TextView>(R.id.textInternalStorage)
+        val externalRow  = findViewById<LinearLayout>(R.id.externalStorageRow)
+        val textExternal = findViewById<TextView>(R.id.textExternalStorage)
+        val btnShred     = findViewById<Button>(R.id.btnShredFile)
+        val btnWipe      = findViewById<Button>(R.id.btnWipe)
 
-        // Show Storage Info
-        val (intTotal, intFree) = WipeUtils.getStorageStats(filesDir)
-        textInternalStorage.text = "Internal Storage (Total / Free): ${formatGB(intTotal)} / ${formatGB(intFree)}"
+        // 4) Speicher‐Statistiken anzeigen
+        val (total, free) = WipeUtils.getStorageStats(filesDir)
+        textInternal.text = "Internal (Total / Free): ${formatGB(total)} / ${formatGB(free)}"
         val extDir = getExternalFilesDir(null)
-        if (extDir != null && android.os.Environment.getExternalStorageState(extDir) == android.os.Environment.MEDIA_MOUNTED) {
-            val (extTotal, extFree) = WipeUtils.getStorageStats(extDir)
-            externalStorageRow.visibility = LinearLayout.VISIBLE
-            textExternalStorage.text = "SD Card (Total / Free): ${formatGB(extTotal)} / ${formatGB(extFree)}"
+        if (extDir != null && Environment.getExternalStorageState(extDir) == Environment.MEDIA_MOUNTED) {
+            val (t2, f2) = WipeUtils.getStorageStats(extDir)
+            externalRow.visibility = LinearLayout.VISIBLE
+            textExternal.text = "SD Card (Total / Free): ${formatGB(t2)} / ${formatGB(f2)}"
         } else {
-            externalStorageRow.visibility = LinearLayout.GONE
+            externalRow.visibility = LinearLayout.GONE
         }
 
-        // Button: Shred File
-        findViewById<Button>(R.id.btnShredFile).setOnClickListener {
-            openFileExplorer(singleSelection = true)
+        // 5) „Shred File“ → eigenem FileExplorer starten
+        btnShred.setOnClickListener {
+            if (hasStoragePermission()) {
+                openFileExplorer()
+            } else {
+                ensureStoragePermissions()
+                showToast("Bitte Speicherzugriff erlauben.")
+            }
         }
 
-        // Button: Wipe Free Space
-        findViewById<Button>(R.id.btnWipe).setOnClickListener {
-            controller.startWipeFreeSpace(
-                dir = filesDir,
-                onProgress = { status, progress -> showStatusDialog(status, progress) },
-                onDone = { hideStatusDialog(); showToast("Wipe abgeschlossen!") }
-            )
+        // 6) „Wipe Free Space“ → direkt Freispeicher‐Wipe
+        btnWipe.setOnClickListener {
+            if (hasStoragePermission()) {
+                startWipeFreeSpace()
+            } else {
+                ensureStoragePermissions()
+                showToast("Bitte Speicherzugriff erlauben.")
+            }
         }
-
     }
 
-    // Open the File Explorer
-    private fun openFileExplorer(singleSelection: Boolean) {
-        supportFragmentManager.popBackStack("FileExplorer", FragmentManager.POP_BACK_STACK_INCLUSIVE)
-        val fragment = FileExplorer()
-        fragment.setOnFileSelectedListener(this)
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.fragment_container, fragment, "FileExplorer")
-            .addToBackStack("FileExplorer")
-            .commit()
+    // -------------------------
+    //  Permissions
+    // -------------------------
+
+    private fun hasStoragePermission(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+
+    private fun ensureStoragePermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                startActivity(
+                    Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                        .apply { data = Uri.parse("package:$packageName") }
+                )
+            }
+        } else {
+            if (!hasStoragePermission()) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                    STORAGE_PERMISSION_REQUEST_CODE
+                )
+            }
+        }
     }
 
-    // Callback from FileExplorer – initiates Controller Workflow
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == STORAGE_PERMISSION_REQUEST_CODE) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                showToast("Speicherzugriff erteilt.")
+            } else {
+                showToast("Ohne Zugriff funktioniert die App nicht.")
+            }
+        }
+    }
+
+    // -------------------------
+    //  FileExplorer
+    // -------------------------
+
+    private fun openFileExplorer() {
+        supportFragmentManager
+            .popBackStack("FileExplorer", FragmentManager.POP_BACK_STACK_INCLUSIVE)
+        FileExplorer().apply {
+            setOnFileSelectedListener(this@MainActivity)
+        }.also {
+            supportFragmentManager.beginTransaction()
+                .replace(R.id.fragment_container, it, "FileExplorer")
+                .addToBackStack("FileExplorer")
+                .commit()
+        }
+    }
+
     override fun onFilesSelected(selectedFiles: List<File>) {
         if (selectedFiles.isEmpty()) {
-            Toast.makeText(this, "Keine Datei gewählt.", Toast.LENGTH_SHORT).show()
+            showToast("Keine Datei gewählt.")
             return
         }
-
-        // 1) CryptoShred (encrypt + delete) starten
-        controller.shredFiles(selectedFiles) { success, failure ->
-            // a) Ergebnis-Meldung
-            Toast.makeText(
-                this,
-                "$success Dateien gelöscht, $failure Fehler.",
-                Toast.LENGTH_LONG
-            ).show()
-
-            // b) FileExplorer frisch halten
-            (supportFragmentManager.findFragmentByTag("FileExplorer") as? FileExplorer)
-                ?.refreshCurrentDir()
-
-            // 2) Nutzer fragen, ob der freie Speicher bereinigt werden soll
+        controller.shredFiles(selectedFiles) { success, failed ->
+            showToast("$success Dateien gelöscht, $failed Fehler.")
+            // Nachfrage: Freien Speicher bereinigen?
             AlertDialog.Builder(this)
                 .setTitle("Freien Speicher bereinigen?")
-                .setMessage("Möchten Sie nach dem kryptografischen Löschen den freien Speicher jetzt überschreiben?")
-                .setPositiveButton("Ja") { _, _ ->
-                    // 3) Status-Dialog öffnen
-                    showStatusDialog("Bereinige freien Speicher...", 0)
-
-                    // 4) wipeFreeSpaceWithFeedback aufrufen
-                    WipeUtils.wipeFreeSpaceWithFeedback(this, filesDir) { percent ->
-                        // im Callback auf Main-Thread laufen wir ja schon
-                        showStatusDialog("Bereinige freien Speicher... $percent%", percent)
-                        if (percent >= 100) {
-                            hideStatusDialog()
-                            Toast.makeText(this, "Speicherbereinigung abgeschlossen!", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }
+                .setMessage("Möchten Sie jetzt den freien Speicher mit Zufallsdaten überschreiben?")
+                .setPositiveButton("Ja") { _, _ -> startWipeFreeSpace() }
                 .setNegativeButton("Nein", null)
                 .show()
+            // Explorer aktualisieren
+            (supportFragmentManager.findFragmentByTag("FileExplorer") as? FileExplorer)
+                ?.refreshCurrentDir()
         }
     }
 
-    // Options-Menu
+    // -------------------------
+    //  Freien Speicher bereinigen
+    // -------------------------
+
+    private fun startWipeFreeSpace() {
+        controller.startWipeFreeSpace(
+            dir = filesDir,
+            onProgress = { status, prog -> showStatusDialog(status, prog) },
+            onDone     = {
+                hideStatusDialog()
+                showToast("Speicherbereinigung abgeschlossen!")
+            }
+        )
+    }
+
+    // -------------------------
+    //  Options‐Menu
+    // -------------------------
+
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         menuInflater.inflate(R.menu.menu_main, menu)
         return true
     }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
-            R.id.action_faq -> {
-                // FAQ anzeigen
-                AlertDialog.Builder(this)
-                    .setTitle("FAQ – Cryptographic Eraser")
-                    .setMessage(
-                        "1. Wie funktioniert kryptografisches Löschen?\n" +
-                                "- Die App verschlüsselt und löscht Dateien sicher.\n\n" +
-                                "2. Welche Algorithmen werden genutzt?\n" +
-                                "- AES-GCM 256 mit PBKDF2-Schlüsselableitung.\n\n" +
-                                "3. Brauche ich spezielle Rechte?\n" +
-                                "- Ja: Voller Dateizugriff.\n\n" +
-                                "4. Sind meine Daten nach dem sicheren Löschen unwiderruflich gelöscht?\n" +
-                                "- Die Daten sind stark überschrieben, aber auf Flash-Media kann man nie 100 % ausschließen, dass Spezial-Attacks noch Reste finden.\n\n" +
-                                "5. Warum ist die App vertrauenswürdig?\n" +
-                                "- Ergebnis einer Bachelor-Thesis der FernUniversität Hagen, Quellcode auf GitHub einsehbar."
-                    )
-                    .setPositiveButton("OK", null)
-                    .show()
-                true
-            }
-            R.id.action_exit -> {
-                // App beenden
-                finishAffinity()
-                true
-            }
-            else -> super.onOptionsItemSelected(item)
+    override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
+        R.id.action_faq -> {
+            AlertDialog.Builder(this)
+                .setTitle("FAQ – Cryptographic Eraser")
+                .setMessage(
+                    "1. Wie funktioniert das?\n" +
+                            "- Verschlüsseln & Löschen.\n\n" +
+                            "2. Algorithmus?\n" +
+                            "- AES-GCM 256 + PBKDF2.\n\n" +
+                            "3. Rechte?\n" +
+                            "- Voller Dateizugriff.\n\n" +
+                            "4. Sicher?\n" +
+                            "- Sehr wahrscheinlich, NAND-Flash kann Spuren behalten.\n\n" +
+                            "5. Vertrauenswürdig?\n" +
+                            "- Bachelor-Arbeit, Code auf GitHub."
+                )
+                .setPositiveButton("OK", null)
+                .show()
+            true
         }
+        R.id.action_exit -> {
+            finishAffinity()
+            true
+        }
+        else -> super.onOptionsItemSelected(item)
     }
 
-    // Helper for showing the storage size
-    private fun formatGB(bytes: Long): String {
-        val gb = bytes / 1_073_741_824.0
-        return String.format("%.2f GB", gb)
-    }
-
-    // Further Helper functions
-    private var statusDialog: Dialog? = null
+    // -------------------------
+    //  Fortschritts‐Dialog & Toast
+    // -------------------------
 
     private fun showStatusDialog(status: String, progress: Int) {
         if (statusDialog == null) {
             statusDialog = Dialog().apply {
-                dialogType = Dialog.Type.STATUS
+                dialogType    = Dialog.Type.STATUS
                 statusMessage = status
                 this.progress = progress
             }
@@ -176,7 +239,15 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         statusDialog = null
     }
 
-    private fun showToast(msg: String) {
+    private fun showToast(msg: String) =
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+
+    // -------------------------
+    //  Hilfsfunktion
+    // -------------------------
+
+    private fun formatGB(bytes: Long): String {
+        val gb = bytes / 1_073_741_824.0
+        return String.format("%.2f GB", gb)
     }
 }
