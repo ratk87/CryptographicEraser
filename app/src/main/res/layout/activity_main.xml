@@ -75,6 +75,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Datei auswählen" />
+
     <!-- Button for wiping the free space -->
     <Button
         android:id="@+id/btnWipe"

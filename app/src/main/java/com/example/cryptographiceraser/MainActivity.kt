@@ -71,17 +71,44 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
 
     // Callback from FileExplorer – initiates Controller Workflow
     override fun onFilesSelected(selectedFiles: List<File>) {
-        if (selectedFiles.isNotEmpty()) {
-            controller.shredFiles(selectedFiles) { ok, fail ->
-                Toast.makeText(this, "$ok Files deleted, $fail Error.", Toast.LENGTH_LONG).show()
-                // After Deletion, FileExplorer gets refreshed
-                val fragment = supportFragmentManager.findFragmentByTag("FileExplorer")
-                if (fragment is FileExplorer) {
-                    fragment.refreshCurrentDir()
+        if (selectedFiles.isEmpty()) {
+            Toast.makeText(this, "Keine Datei gewählt.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // 1) CryptoShred (encrypt + delete) starten
+        controller.shredFiles(selectedFiles) { success, failure ->
+            // a) Ergebnis-Meldung
+            Toast.makeText(
+                this,
+                "$success Dateien gelöscht, $failure Fehler.",
+                Toast.LENGTH_LONG
+            ).show()
+
+            // b) FileExplorer frisch halten
+            (supportFragmentManager.findFragmentByTag("FileExplorer") as? FileExplorer)
+                ?.refreshCurrentDir()
+
+            // 2) Nutzer fragen, ob der freie Speicher bereinigt werden soll
+            AlertDialog.Builder(this)
+                .setTitle("Freien Speicher bereinigen?")
+                .setMessage("Möchten Sie nach dem kryptografischen Löschen den freien Speicher jetzt überschreiben?")
+                .setPositiveButton("Ja") { _, _ ->
+                    // 3) Status-Dialog öffnen
+                    showStatusDialog("Bereinige freien Speicher...", 0)
+
+                    // 4) wipeFreeSpaceWithFeedback aufrufen
+                    WipeUtils.wipeFreeSpaceWithFeedback(this, filesDir) { percent ->
+                        // im Callback auf Main-Thread laufen wir ja schon
+                        showStatusDialog("Bereinige freien Speicher... $percent%", percent)
+                        if (percent >= 100) {
+                            hideStatusDialog()
+                            Toast.makeText(this, "Speicherbereinigung abgeschlossen!", Toast.LENGTH_LONG).show()
+                        }
+                    }
                 }
-            }
-        } else {
-            Toast.makeText(this, "No files selected.", Toast.LENGTH_SHORT).show()
+                .setNegativeButton("Nein", null)
+                .show()
         }
     }
 
