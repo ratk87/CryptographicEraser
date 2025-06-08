@@ -6,6 +6,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import java.io.File
+import android.view.Menu
+import android.view.MenuItem
+import androidx.appcompat.app.AlertDialog
 
 class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
 
@@ -82,6 +85,42 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         }
     }
 
+    // Options-Menu
+    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+        menuInflater.inflate(R.menu.menu_main, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_faq -> {
+                // FAQ anzeigen
+                AlertDialog.Builder(this)
+                    .setTitle("FAQ – Cryptographic Eraser")
+                    .setMessage(
+                        "1. Wie funktioniert kryptografisches Löschen?\n" +
+                                "- Die App verschlüsselt und löscht Dateien sicher.\n\n" +
+                                "2. Welche Algorithmen werden genutzt?\n" +
+                                "- AES-GCM 256 mit PBKDF2-Schlüsselableitung.\n\n" +
+                                "3. Brauche ich spezielle Rechte?\n" +
+                                "- Ja: Voller Dateizugriff.\n\n" +
+                                "4. Sind meine Daten nach dem sicheren Löschen unwiderruflich gelöscht?\n" +
+                                "- Die Daten sind stark überschrieben, aber auf Flash-Media kann man nie 100 % ausschließen, dass Spezial-Attacks noch Reste finden.\n\n" +
+                                "5. Warum ist die App vertrauenswürdig?\n" +
+                                "- Ergebnis einer Bachelor-Thesis der FernUniversität Hagen, Quellcode auf GitHub einsehbar."
+                    )
+                    .setPositiveButton("OK", null)
+                    .show()
+                true
+            }
+            R.id.action_exit -> {
+                // App beenden
+                finishAffinity()
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
 
     // Helper for showing the storage size
     private fun formatGB(bytes: Long): String {
