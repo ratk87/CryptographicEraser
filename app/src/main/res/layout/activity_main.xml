@@ -35,7 +35,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
                 android:textSize="16sp"
-                android:text="Internal Storage (Total / Free): 0 GB / 0 GB"/>
+                android:text="Interner Speicer (Total / Frei): 0 GB / 0 GB"/>
         </LinearLayout>
         <!-- External Storage Row: only visible if SD card present -->
         <LinearLayout
@@ -59,7 +59,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="12dp"
                 android:textSize="16sp"
-                android:text="SD Card (Total / Free): 0 GB / 0 GB"/>
+                android:text="SD Card (Total / Frei): 0 GB / 0 GB"/>
         </LinearLayout>
     </LinearLayout>
     <!-- File Explorer -->
@@ -74,12 +74,13 @@
         android:id="@+id/btnShredFile"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Shred File" />
+        android:text="Datei auswählen" />
+
     <!-- Button for wiping the free space -->
     <Button
         android:id="@+id/btnWipe"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="Wipe Free Space" />
+        android:text="Speicherbereinigung" />
 </LinearLayout>

@@ -1,9 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:orientation="vertical"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Button für eine Ebene nach oben -->
+    <!-- Auswahlleiste für Internal vs SD Card -->
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <Button
+            android:id="@+id/btnInternal"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Internal" />
+
+        <Button
+            android:id="@+id/btnSdCard"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="SD Card" />
+    </LinearLayout>
+
+    <!-- Eine Ebene nach oben -->
     <Button
         android:id="@+id/btnGoUp"
         android:layout_width="match_parent"
@@ -15,15 +37,17 @@
         android:id="@+id/textCurrentPath"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Pfad: /"
+        android:text="Pfad:"
         android:textAppearance="?android:attr/textAppearanceSmall"
         android:padding="8dp"
         android:ellipsize="start"
         android:singleLine="true"/>
 
+    <!-- Dateiliste -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerViewFiles"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"/>
+        android:layout_weight="1" />
+
 </LinearLayout>
