@@ -40,7 +40,7 @@ class CryptoEraseController(
                 var failed = 0
                 for ((i, file) in files.withIndex()) {
                     val ok = withContext(Dispatchers.IO) {
-                        CryptoUtils.encryptFileInPlace(context, file, password!!)
+                        CryptoUtils.encryptFileInPlace(file, password)
                     }
                     if (ok) success++ else failed++
                     showStatus(
