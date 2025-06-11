@@ -2,24 +2,34 @@ package com.example.cryptographiceraser
 
 import android.content.Context
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.os.StatFs
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
-import android.os.StatFs
-import android.os.Handler
-import android.os.Looper
 
 object WipeUtils {
-
     private const val TAG = "WipeUtils"
 
     /**
-     * Überschreibt freien Speicherplatz in jedem beliebigen Verzeichnis – mit MANAGE_EXTERNAL_STORAGE jetzt auch außerhalb des Sandboxes!
+     * Überschreibt freien Speicherplatz in [directory] mit Zufallsdaten.
+     * Logt:
+     *  (1) Start des Wipes mit Pfad und verfügbarem Platz
+     *  (2) Erstellung jeder Dummy-Datei
+     *  (3) Am Ende: Anzahl der erstellten Dummy-Dateien und Gesamtgröße
+     *  (4) Erfolgreiches Löschen aller Dummy-Dateien
+     *  (5) Beenden des Wipes
      */
     fun wipeFreeSpaceInDirectory(context: Context, directory: File): Long {
         val wipeDir = File(directory, "wipe_tmp")
         if (!wipeDir.exists()) wipeDir.mkdirs()
-        val buffer = ByteArray(1024 * 1024) // 1 MiB blocks
+
+        // (1) Startmeldung
+        val totalSpace = directory.usableSpace
+        Log.d(TAG, "Starting wipeFreeSpaceInDirectory on '${directory.absolutePath}', usableSpace=${formatGB(totalSpace)}")
+
+        val buffer = ByteArray(1024 * 1024) // 1 MiB
         val rnd = java.security.SecureRandom()
         var fileIndex = 0
         var totalBytesWritten: Long = 0
@@ -28,30 +38,48 @@ object WipeUtils {
             while (true) {
                 val dummyFile = File(wipeDir, "wipe_dummy_$fileIndex.bin")
                 fileIndex++
+                // (2) Dummy-Datei wird angelegt
+                Log.d(TAG, "Creating dummy file #$fileIndex: ${dummyFile.absolutePath}")
                 FileOutputStream(dummyFile).use { out ->
                     while (true) {
                         rnd.nextBytes(buffer)
                         out.write(buffer)
                         totalBytesWritten += buffer.size
-                        if (dummyFile.length() > 100 * 1024 * 1024) break
+                        // begrenze jede Dummy-Datei auf 100 MiB
+                        if (dummyFile.length() > 100L * 1024 * 1024) break
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.d(TAG, "Wiping stopped (likely out of space): ${e.message}")
+            // erwartet: kein Platz mehr
+            Log.d(TAG, "Stopped writing dummy files (likely out of space): ${e.message}")
         }
 
-        Log.d(TAG, "Total bytes written during wipe: $totalBytesWritten")
+        // (3) Zusammenfassung
+        Log.d(TAG, "Wipe summary: created $fileIndex dummy files, totalBytesWritten=${formatGB(totalBytesWritten)}")
+
+        // (4) Datei‐Cleanup
+        val deletedCount = cleanWipeDummyFiles(directory)
+        Log.d(TAG, "Deleted $deletedCount dummy files from '${wipeDir.absolutePath}'")
+
+        // (5) Ende
+        Log.d(TAG, "wipeFreeSpaceInDirectory completed on '${directory.absolutePath}'")
+
         return totalBytesWritten
     }
 
+    /**
+     * Ruft [wipeFreeSpaceInDirectory] zweimal auf.
+     */
     fun doubleWipeFreeSpace(context: Context, directory: File) {
-        repeat(2) { _ ->
+        repeat(2) {
             wipeFreeSpaceInDirectory(context, directory)
-            cleanWipeDummyFiles(directory)
         }
     }
 
+    /**
+     * Löscht alle Dummy-Dateien in [directory]/wipe_tmp
+     */
     fun cleanWipeDummyFiles(directory: File): Int {
         val wipeDir = File(directory, "wipe_tmp")
         var count = 0
@@ -64,6 +92,9 @@ object WipeUtils {
         return count
     }
 
+    /**
+     * Liefert Gesamt- und freien Speicherplatz des Verzeichnisses.
+     */
     fun getStorageStats(directory: File): Pair<Long, Long> {
         val stat = StatFs(directory.absolutePath)
         val total = stat.blockCountLong * stat.blockSizeLong
@@ -71,6 +102,10 @@ object WipeUtils {
         return Pair(total, free)
     }
 
+    /**
+     * Wie [wipeFreeSpaceInDirectory], aber mit Feedback-Callback 0…100 %.
+     * Logt am Anfang und am Ende.
+     */
     fun wipeFreeSpaceWithFeedback(
         context: Context,
         directory: File,
@@ -79,37 +114,54 @@ object WipeUtils {
         Thread {
             val wipeDir = File(directory, "wipe_tmp")
             if (!wipeDir.exists()) wipeDir.mkdirs()
-            val buffer = ByteArray(1024 * 1024) // 1 MiB
+
+            val buffer = ByteArray(1024 * 1024)
             val rnd = java.security.SecureRandom()
             var fileIndex = 0
             var totalBytesWritten = 0L
             val totalSpace = directory.usableSpace
 
+            // (1) Startmeldung
+            Log.d(TAG, "Starting wipeFreeSpaceWithFeedback on '${directory.absolutePath}', usableSpace=${formatGB(totalSpace)}")
+
             try {
-                loop@ while (true) {
+                while (true) {
                     val dummyFile = File(wipeDir, "wipe_dummy_$fileIndex.bin")
                     fileIndex++
+                    Log.d(TAG, "Creating dummy file #$fileIndex for feedback: ${dummyFile.absolutePath}")
                     FileOutputStream(dummyFile).use { out ->
                         while (true) {
                             rnd.nextBytes(buffer)
                             out.write(buffer)
                             totalBytesWritten += buffer.size
-                            val percent = ((totalBytesWritten * 100) / totalSpace).coerceAtMost(100)
-                            Handler(Looper.getMainLooper()).post { onProgress(percent.toInt()) }
-                            if (dummyFile.length() > 100 * 1024 * 1024) break
+                            val percent = ((totalBytesWritten * 100) / totalSpace).toInt().coerceAtMost(100)
+                            Handler(Looper.getMainLooper()).post { onProgress(percent) }
+                            if (dummyFile.length() > 100L * 1024 * 1024) break
                         }
                     }
                 }
-            } catch (e: Exception) {
-                // Kein Platz mehr = Ende!
+            } catch (_: Exception) {
+                // Platzende – hier normaler Abbruch
             }
-            // Nach dem Wipe auf 100% stellen
+
+            // letzte 100%-Meldung
             Handler(Looper.getMainLooper()).post { onProgress(100) }
-            // Aufräumen
-            wipeDir.listFiles()?.forEach { it.delete() }
-            wipeDir.delete()
+
+            // (3) Zusammenfassung
+            Log.d(TAG, "Feedback‐wipe summary: created $fileIndex dummy files, totalWritten=${formatGB(totalBytesWritten)}")
+
+            // (4) Cleanup & Log
+            val deletedCount = cleanWipeDummyFiles(directory)
+            Log.d(TAG, "Deleted $deletedCount dummy files after feedback‐wipe in '${wipeDir.absolutePath}'")
+
+            // (5) Ende
+            Log.d(TAG, "wipeFreeSpaceWithFeedback completed on '${directory.absolutePath}'")
         }.start()
     }
 
-
+    /** Hilfsfunktion: Bytes → GB-String */
+    private fun formatGB(bytes: Long): String {
+        val gb = bytes / 1_073_741_824.0
+        return String.format("%.2f GB", gb)
+    }
 }
