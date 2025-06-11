@@ -47,22 +47,12 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
 
         // 3) UI‐Elemente referenzieren
         val textInternal = findViewById<TextView>(R.id.textInternalStorage)
-        val externalRow  = findViewById<LinearLayout>(R.id.externalStorageRow)
-        val textExternal = findViewById<TextView>(R.id.textExternalStorage)
         val btnShred     = findViewById<Button>(R.id.btnShredFile)
         val btnWipe      = findViewById<Button>(R.id.btnWipe)
 
         // 4) Speicher‐Statistiken anzeigen
         val (total, free) = WipeUtils.getStorageStats(filesDir)
         textInternal.text = "Internal (Total / Free): ${formatGB(total)} / ${formatGB(free)}"
-        val extDir = getExternalFilesDir(null)
-        if (extDir != null && Environment.getExternalStorageState(extDir) == Environment.MEDIA_MOUNTED) {
-            val (t2, f2) = WipeUtils.getStorageStats(extDir)
-            externalRow.visibility = LinearLayout.VISIBLE
-            textExternal.text = "SD Card (Total / Free): ${formatGB(t2)} / ${formatGB(f2)}"
-        } else {
-            externalRow.visibility = LinearLayout.GONE
-        }
 
         // 5) „Shred File“ → eigenem FileExplorer starten
         btnShred.setOnClickListener {
