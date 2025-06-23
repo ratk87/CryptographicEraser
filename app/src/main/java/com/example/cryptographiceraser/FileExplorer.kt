@@ -62,7 +62,6 @@ class FileExplorer : Fragment() {
         val root = inflater.inflate(R.layout.file_explorer, container, false)
 
         btnInternal    = root.findViewById(R.id.btnInternal)
-        btnSdCard      = root.findViewById(R.id.btnSdCard)
         btnGoUp        = root.findViewById(R.id.btnGoUp)
         textCurrentPath = root.findViewById(R.id.textCurrentPath)
         recyclerView   = root.findViewById(R.id.recyclerViewFiles)
@@ -70,11 +69,7 @@ class FileExplorer : Fragment() {
 
         // Button-Click-Handler setzen
         btnInternal.setOnClickListener { loadFiles(internalRoot) }
-        btnSdCard.setOnClickListener { sdRoot?.let { loadFiles(it) } }
         btnGoUp.setOnClickListener { goUp() }
-
-        // SD-Button nur sichtbar, wenn wirklich eine SD-Card existiert
-        btnSdCard.visibility = if (sdRoot != null) View.VISIBLE else View.GONE
 
         // initial intern laden
         loadFiles(internalRoot)
