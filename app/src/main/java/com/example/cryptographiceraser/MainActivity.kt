@@ -12,7 +12,6 @@ import android.provider.Settings
 import android.view.Menu
 import android.view.MenuItem
 import android.widget.Button
-import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -200,15 +199,15 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
                 .setTitle("FAQ – Cryptographic Eraser")
                 .setMessage(
                     "1. Wie funktioniert das?\n" +
-                            "- Verschlüsseln & Löschen.\n\n" +
+                            "- In-place verschlüsseln der Datei, gefolgt von Löschen der Datei und einer Speicherbereinigung.\n\n" +
                             "2. Algorithmus?\n" +
-                            "- AES-GCM 256 + PBKDF2.\n\n" +
+                            "- AES-GCM bzw AES-CTR mit PBKDF2.\n\n" +
                             "3. Rechte?\n" +
-                            "- Voller Dateizugriff.\n\n" +
+                            "- Voller Dateizugriff wird benötigt.\n\n" +
                             "4. Sicher?\n" +
-                            "- Sehr wahrscheinlich, NAND-Flash kann Spuren behalten.\n\n" +
+                            "- Aufgrund der verwendeten Speichertechnologie - NAND-Flashspeicher - verbleibt ein Restrisiko. Dies bedeutet, dass es nicht ausgeschlossen werden kann das Dateifragmente verbleiben.\n\n" +
                             "5. Vertrauenswürdig?\n" +
-                            "- Bachelor-Arbeit, Code auf GitHub."
+                            "- Diese App, ein Demonstrator, wurde im Rahmen eienr Bachelor-Arbeit entwickelt. Ihr Code ist auf GitHub verfügbar."
                 )
                 .setPositiveButton("OK", null)
                 .show()
