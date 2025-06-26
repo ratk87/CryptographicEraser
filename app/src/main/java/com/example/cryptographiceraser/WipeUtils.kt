@@ -1,7 +1,6 @@
 package com.example.cryptographiceraser
 
 import android.content.Context
-import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.StatFs
@@ -66,15 +65,6 @@ object WipeUtils {
         Log.d(TAG, "wipeFreeSpaceInDirectory completed on '${directory.absolutePath}'")
 
         return totalBytesWritten
-    }
-
-    /**
-     * Ruft [wipeFreeSpaceInDirectory] zweimal auf.
-     */
-    fun doubleWipeFreeSpace(context: Context, directory: File) {
-        repeat(2) {
-            wipeFreeSpaceInDirectory(context, directory)
-        }
     }
 
     /**
