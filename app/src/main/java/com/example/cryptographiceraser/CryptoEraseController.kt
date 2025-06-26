@@ -1,6 +1,7 @@
 package com.example.cryptographiceraser
 
 import android.content.Context
+import android.util.Log
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.LifecycleCoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,7 +50,20 @@ class CryptoEraseController(
                     )
                 }
                 showStatus("Lösche Dateien...", 85)
-                withContext(Dispatchers.IO) { files.forEach { it.delete() } }
+                withContext(Dispatchers.IO) {
+                    for ((i, file) in files.withIndex()) {
+                        val deleted = file.delete()
+                        if (deleted) {
+                            success++
+                        } else {
+                            failed++
+                            Log.w(CryptoUtils.TAG, "Konnte Datei nicht löschen: ${file.name}")
+                        }
+                        // Optional: Status-Update pro Datei
+                        val progress = 85 + (10 * (i + 1) / files.size)
+                        showStatus("Lösche ${file.name} (${i + 1}/${files.size})...", progress)
+                    }
+                }
 
                 showStatus("Fertig!", 100)
                 hideDialog()

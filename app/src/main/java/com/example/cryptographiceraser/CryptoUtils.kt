@@ -11,7 +11,7 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 object CryptoUtils {
-    private const val TAG = "CryptoUtils"
+    public const val TAG = "CryptoUtils"
 
     /** Schwellwert 20 MiB: bis dahin GCM, darüber CTR */
     private const val SIZE_THRESHOLD = 20L * 1024 * 1024
