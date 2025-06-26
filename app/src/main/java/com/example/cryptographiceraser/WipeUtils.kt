@@ -44,7 +44,7 @@ object WipeUtils {
                         rnd.nextBytes(buffer)
                         out.write(buffer)
                         totalBytesWritten += buffer.size
-                        // begrenze jede Dummy-Datei auf 100 MiB
+                        // begrenze jede Dummy-Datei auf 100 MiB - beliebig, hier eine mögliche Größe
                         if (dummyFile.length() > 100L * 1024 * 1024) break
                     }
                 }
