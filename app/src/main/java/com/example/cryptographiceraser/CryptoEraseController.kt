@@ -48,6 +48,7 @@ class CryptoEraseController(
                         "Bearbeite ${file.name} (${i + 1}/${files.size})...",
                         20 + (70 * (i + 1) / files.size)
                     )
+                    success = 0
                 }
                 showStatus("Lösche Dateien...", 85)
                 withContext(Dispatchers.IO) {
