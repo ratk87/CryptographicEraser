@@ -26,7 +26,6 @@ class FileExplorer : Fragment() {
     }
 
     private lateinit var btnInternal: Button
-    private lateinit var btnSdCard: Button
     private lateinit var btnGoUp: Button
     private lateinit var textCurrentPath: TextView
     private lateinit var recyclerView: RecyclerView
