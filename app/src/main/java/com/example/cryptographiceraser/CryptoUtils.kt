@@ -17,7 +17,7 @@ object CryptoUtils {
     private const val SIZE_THRESHOLD = 20L * 1024 * 1024
 
     /**
-     * Verschlüsselt die Datei wirklich „in place“:
+     * Verschlüsselt die Datei „in place“:
      * 1) komplette Original–Datei in ByteArray einlesen
      * 2) Salt + IV erzeugen und vor den Ciphertext setzen
      * 3) resultierende ByteArray zurück in dieselbe Datei schreiben
