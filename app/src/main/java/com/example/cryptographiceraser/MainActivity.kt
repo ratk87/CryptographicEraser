@@ -21,39 +21,48 @@ import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import java.io.File
 
+/**
+ * Haupt-Activity der App; zeigt Speicherstatistiken,
+ * startet den Datei-Explorer zum „Shredden“ ausgewählter Dateien
+ * und initiiert das Überschreiben des freien Speicherplatzes.
+ */
 class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
 
     companion object {
+        /** Request-Code für Speicher-Berechtigungen (READ & WRITE) */
         private const val STORAGE_PERMISSION_REQUEST_CODE = 1001
     }
 
+    /** Controller für Verschlüsselungs- und Lösch-Workflows */
     private lateinit var controller: CryptoEraseController
+
+    /** Dialog für Fortschrittsanzeigen (Encrypt/Delete/Free-Space) */
     private var statusDialog: Dialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // 1) Laufzeit‐Berechtigungen sicherstellen
+        // 1) Permissions: Stelle sicher, dass App Lese-/Schreibzugriff hat
         ensureStoragePermissions()
 
-        // 2) Controller initialisieren
+        // 2) Controller instanziieren mit Kontext, FragmentManager und Coroutine-Scope
         controller = CryptoEraseController(
             context = this,
             fragmentManager = supportFragmentManager,
             lifecycleScope = lifecycleScope
         )
 
-        // 3) UI‐Elemente referenzieren
+        // 3) UI-Elemente aus Layout referenzieren
         val textInternal = findViewById<TextView>(R.id.textInternalStorage)
         val btnShred     = findViewById<Button>(R.id.btnShredFile)
         val btnWipe      = findViewById<Button>(R.id.btnWipe)
 
-        // 4) Speicher‐Statistiken anzeigen
+        // 4) Aktuelle Speicherstatistiken ermitteln und anzeigen
         val (total, free) = WipeUtils.getStorageStats(filesDir)
         textInternal.text = "Internal (Total / Free): ${formatGB(total)} / ${formatGB(free)}"
 
-        // 5) „Shred File“ → eigenem FileExplorer starten
+        // 5) Button „Shred File“: öffnet FileExplorer, wenn Berechtigung vorhanden
         btnShred.setOnClickListener {
             if (hasStoragePermission()) {
                 openFileExplorer()
@@ -63,7 +72,7 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
             }
         }
 
-        // 6) „Wipe Free Space“ → direkt Freispeicher‐Wipe
+        // 6) Button „Wipe Free Space“: startet Freispeicher-Wipe
         btnWipe.setOnClickListener {
             if (hasStoragePermission()) {
                 startWipeFreeSpace()
@@ -75,31 +84,33 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
     }
 
     // -------------------------
-    //  Permissions
+    // Berechtigungs-Logik
     // -------------------------
 
+    /** Prüft, ob die nötigen Speicher-Berechtigungen erteilt wurden */
     private fun hasStoragePermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+: „Manage all files“
             Environment.isExternalStorageManager()
         } else {
-            // beide Permissions müssen da sein
+            // Android 6–10: READ & WRITE nötig
             ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)  == PackageManager.PERMISSION_GRANTED &&
                     ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         }
     }
 
-
+    /** Fordert bei Bedarf die Laufzeit-Berechtigungen an */
     private fun ensureStoragePermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11+
             if (!Environment.isExternalStorageManager()) {
+                // Menü öffnen, damit Nutzer „All Files Access“ erteilen kann
                 startActivity(
                     Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
                         .apply { data = Uri.parse("package:$packageName") }
                 )
             }
         } else {
-            // Android 6–10: sowohl READ als auch WRITE
+            // Für ältere Android-Versionen: READ + WRITE gemeinsam anfragen
             val perms = arrayOf(
                 Manifest.permission.READ_EXTERNAL_STORAGE,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE
@@ -117,7 +128,7 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         }
     }
 
-
+    /** Callback für das Ergebnis der Berechtigungsanfrage */
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
@@ -132,14 +143,15 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         }
     }
 
-
     // -------------------------
-    //  FileExplorer
+    // File Explorer-Integration
     // -------------------------
 
+    /** Startet den FileExplorer-Fragment, um Dateien auszuwählen */
     private fun openFileExplorer() {
         supportFragmentManager
             .popBackStack("FileExplorer", FragmentManager.POP_BACK_STACK_INCLUSIVE)
+
         FileExplorer().apply {
             setOnFileSelectedListener(this@MainActivity)
         }.also {
@@ -150,30 +162,33 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         }
     }
 
+    /** Wird aufgerufen, wenn der Nutzer Dateien im Explorer ausgewählt hat */
     override fun onFilesSelected(selectedFiles: List<File>) {
         if (selectedFiles.isEmpty()) {
             showToast("Keine Datei gewählt.")
             return
         }
+        // Shred-Workflow: verschlüsseln + löschen → liefert (Erfolg, Fehler)
         controller.shredFiles(selectedFiles) { success, failed ->
             showToast("$success Dateien gelöscht, $failed Fehler.")
-            // Nachfrage: Freien Speicher bereinigen?
+            // Frage: Freispeicher bereinigen?
             AlertDialog.Builder(this)
                 .setTitle("Freien Speicher bereinigen?")
                 .setMessage("Möchten Sie jetzt den freien Speicher mit Zufallsdaten überschreiben?")
                 .setPositiveButton("Ja") { _, _ -> startWipeFreeSpace() }
                 .setNegativeButton("Nein", null)
                 .show()
-            // Explorer aktualisieren
+            // Explorer aktualisieren, um gelöschte Dateien zu entfernen
             (supportFragmentManager.findFragmentByTag("FileExplorer") as? FileExplorer)
                 ?.refreshCurrentDir()
         }
     }
 
     // -------------------------
-    //  Freien Speicher bereinigen
+    // Freien Speicher bereinigen
     // -------------------------
 
+    /** Startet den Freispeicher-Wipe mit Callback für UI-Updates */
     private fun startWipeFreeSpace() {
         controller.startWipeFreeSpace(
             dir = filesDir,
@@ -186,7 +201,7 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
     }
 
     // -------------------------
-    //  Options‐Menu
+    // Optionsmenü (FAQ, Exit)
     // -------------------------
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
@@ -195,6 +210,7 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
     }
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
         R.id.action_faq -> {
+            // Zeigt eine FAQ-Box mit Erklärungen zur App
             AlertDialog.Builder(this)
                 .setTitle("FAQ – Cryptographic Eraser")
                 .setMessage(
@@ -205,15 +221,16 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
                             "3. Rechte?\n" +
                             "- Voller Dateizugriff wird benötigt.\n\n" +
                             "4. Sicher?\n" +
-                            "- Aufgrund der verwendeten Speichertechnologie - NAND-Flashspeicher - verbleibt ein Restrisiko. Dies bedeutet, dass es nicht ausgeschlossen werden kann das Dateifragmente verbleiben.\n\n" +
+                            "- Aufgrund der verwendeten Speichertechnologie - NAND-Flashspeicher - verbleibt ein Restrisiko.\n\n" +
                             "5. Vertrauenswürdig?\n" +
-                            "- Diese App, ein Demonstrator, wurde im Rahmen eienr Bachelor-Arbeit entwickelt. Ihr Code ist auf GitHub verfügbar."
+                            "- Demonstrator im Rahmen einer Bachelorarbeit, Code auf GitHub."
                 )
                 .setPositiveButton("OK", null)
                 .show()
             true
         }
         R.id.action_exit -> {
+            // App vollständig beenden
             finishAffinity()
             true
         }
@@ -221,9 +238,10 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
     }
 
     // -------------------------
-    //  Fortschritts‐Dialog & Toast
+    // Fortschritts-Dialog & Toast
     // -------------------------
 
+    /** Zeigt oder aktualisiert einen Status-Dialog mit Text und Prozent */
     private fun showStatusDialog(status: String, progress: Int) {
         if (statusDialog == null) {
             statusDialog = Dialog().apply {
@@ -237,18 +255,25 @@ class MainActivity : AppCompatActivity(), FileExplorer.OnFileSelectedListener {
         }
     }
 
+    /** Blendet den Fortschritts-Dialog aus */
     private fun hideStatusDialog() {
         statusDialog?.dismissAllowingStateLoss()
         statusDialog = null
     }
 
+    /** Einfache Helper-Funktion für lange Toast-Nachrichten */
     private fun showToast(msg: String) =
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
     // -------------------------
-    //  Hilfsfunktion
+    // Hilfsfunktionen
     // -------------------------
 
+    /**
+     * Formatiert Byte-Werte in GB mit zwei Nachkommastellen
+     * @param bytes Anzahl Bytes
+     * @return Formatierte String-Darstellung, z.B. "1.23 GB"
+     */
     private fun formatGB(bytes: Long): String {
         val gb = bytes / 1_073_741_824.0
         return String.format("%.2f GB", gb)

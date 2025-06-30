@@ -10,115 +10,119 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
+/**
+ * Objekt mit kryptografischen Hilfsfunktionen für „In-Place“-Verschlüsselung.
+ * Wählt je nach Dateigröße AES-GCM (bis 20 MiB) oder AES-CTR (darüber)
+ * und schreibt Salt, IV und Ciphertext zurück in dieselbe Datei.
+ */
 object CryptoUtils {
-    public const val TAG = "CryptoUtils"
+    /** Tag für Log-Ausgaben */
+    const val TAG = "CryptoUtils"
 
-    /** Schwellwert 20 MiB: bis dahin GCM, darüber CTR */
+    /** Grenze in Byte: Dateien ≤20 MiB → GCM, >20 MiB → CTR */
     private const val SIZE_THRESHOLD = 20L * 1024 * 1024
 
     /**
-     * Verschlüsselt die Datei „in place“:
-     * 1) komplette Original–Datei in ByteArray einlesen
-     * 2) Salt + IV erzeugen und vor den Ciphertext setzen
-     * 3) resultierende ByteArray zurück in dieselbe Datei schreiben
+     * Verschlüsselt die übergebene Datei „in place“:
+     * 1. Loggt Passwort-Länge und Originalgröße.
+     * 2. Liest gesamten Inhalt in ein ByteArray.
+     * 3. Wählt je nach Größe AES-GCM oder AES-CTR.
+     * 4. Loggt generiertes Salt, IV und resultierende Größe.
+     * 5. Überschreibt dieselbe Datei mit [salt ‖ iv ‖ ciphertext].
      *
-     * Loggt:
-     *  (1) Passwort-Länge
-     *  (1.1) Original-Dateigröße
-     *  (2) Salt + IV
-     *  (3) neue Byte-Array-Größe
+     * @param file Zu verschlüsselnde Datei
+     * @param password Passwort als CharArray (wird nach Verwendung gelöscht)
+     * @return true bei Erfolg, false bei Fehler (wird geloggt)
      */
     fun encryptFileInPlace(file: File, password: CharArray): Boolean {
-        try {
-            // (1) Passwort erhalten
+        return try {
+            // (1) Passwort-Länge loggen
             Log.d(TAG, "Password received from user (length=${password.size})")
 
-            // (1.1) Original-Dateigröße ermitteln
+            // (1.1) Original-Dateigröße loggen
             val originalSize = file.length()
             Log.d(TAG, "Original filesize of '${file.name}' is $originalSize bytes")
 
-            // 1) gesamte Originaldatei lesen
+            // (2) Datei komplett einlesen
             val plain = file.readBytes()
 
-            // 2) je nach Dateigröße GCM oder CTR
-            val ciphered: ByteArray = if (originalSize <= SIZE_THRESHOLD) {
+            // (3) Modus wählen: GCM bis Grenze, sonst CTR
+            val ciphered = if (originalSize <= SIZE_THRESHOLD) {
                 encryptGcm(plain, password)
             } else {
                 encryptCtr(plain, password)
             }
 
-            // (3) Neue verschlüsselte Byte-Array-Größe
+            // (4) Ergebnisgröße loggen
             Log.d(TAG, "New encrypted bytestream generated, filesize is ${ciphered.size} bytes")
 
-            // 3) überschreibe Datei mit [salt|iv|ciphertext]
+            // (5) In-place zurückschreiben
             file.outputStream().use { it.write(ciphered) }
 
-            return true
+            true
         } catch (e: Exception) {
             Log.e(TAG, "In-place encryption failed", e)
-            return false
+            false
         }
     }
 
-    // --- Hilfsfunktion für AES-GCM ---
+    /**
+     * Hilfsfunktion: Verschlüsselt Daten mit AES-GCM.
+     * Header: salt (16 B) ‖ iv (12 B) ‖ ciphertext + Tag.
+     */
     private fun encryptGcm(plain: ByteArray, password: CharArray): ByteArray {
-        // Salt (16 B) + IV (12 B)
+        // Salt und IV generieren
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val iv   = ByteArray(12).also { SecureRandom().nextBytes(it) }
-
-        // (2) Salt + IV generiert
         Log.d(TAG, "SALT generated (${salt.size} bytes): ${salt.joinToString(",")}")
         Log.d(TAG, "IV   generated (${iv.size} bytes): ${iv.joinToString(",")}")
 
-        // Schlüsselableitung
+        // Schlüsselableitung via PBKDF2
         val spec = PBEKeySpec(password, salt, 100_000, 256)
         val kf   = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         val key  = SecretKeySpec(kf.generateSecret(spec).encoded, "AES")
 
-        // Cipher initialisieren
+        // Cipher initialisieren und verschlüsseln
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, iv))
-
-        // Auth-Tag und ciphertext erzeugen
         val ct = cipher.doFinal(plain)
 
-        // Passwort+Schlüsselmaterial sicher löschen
+        // Sensible Daten aus RAM löschen
         spec.clearPassword()
         password.fill('\u0000')
         key.encoded.fill(0)
 
-        // ByteArray = salt ‖ iv ‖ ciphertext
+        // Salt ‖ iv ‖ ciphertext zurückgeben
         return salt + iv + ct
     }
 
-    // --- Hilfsfunktion für AES-CTR ---
+    /**
+     * Hilfsfunktion: Verschlüsselt Daten mit AES-CTR.
+     * Header: salt (16 B) ‖ iv (16 B) ‖ ciphertext.
+     */
     private fun encryptCtr(plain: ByteArray, password: CharArray): ByteArray {
-        // Salt (16 B) + IV (16 B für CTR)
+        // Salt und IV generieren
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val iv   = ByteArray(16).also { SecureRandom().nextBytes(it) }
-
-        // (2) Salt + IV generiert
         Log.d(TAG, "SALT generated (${salt.size} bytes): ${salt.joinToString(",")}")
         Log.d(TAG, "IV   generated (${iv.size} bytes): ${iv.joinToString(",")}")
 
-        // Schlüsselableitung
+        // Schlüsselableitung via PBKDF2
         val spec = PBEKeySpec(password, salt, 100_000, 256)
         val kf   = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         val key  = SecretKeySpec(kf.generateSecret(spec).encoded, "AES")
 
-        // Cipher initialisieren
+        // Cipher initialisieren und verschlüsseln
         val cipher = Cipher.getInstance("AES/CTR/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key, IvParameterSpec(iv))
-
-        // ciphertext erzeugen (CTR liefert gleiche Länge wie plaintext)
         val ct = cipher.doFinal(plain)
 
-        // Passwort+Schlüsselmaterial löschen
+        // Sensible Daten aus RAM löschen
         spec.clearPassword()
         password.fill('\u0000')
         key.encoded.fill(0)
 
-        // ByteArray = salt ‖ iv ‖ ciphertext
+        // Salt ‖ iv ‖ ciphertext zurückgeben
         return salt + iv + ct
     }
 }
