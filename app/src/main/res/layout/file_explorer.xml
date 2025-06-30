@@ -16,13 +16,6 @@
             android:layout_weight="1"
             android:layout_height="wrap_content"
             android:text="Internal" />
-
-        <Button
-            android:id="@+id/btnSdCard"
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content"
-            android:text="SD Card" />
     </LinearLayout>
 
     <!-- Eine Ebene nach oben -->

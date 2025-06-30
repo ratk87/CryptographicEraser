@@ -8,10 +8,6 @@
         app:showAsAction="never"/>
 
     <!-- Info Placeholder -->
-    <item
-        android:id="@+id/action_info"
-        android:title="@string/action_info"
-        app:showAsAction="never"/>
 
     <!-- Exit Button - NO ICON so it stays in the overflow menu -->
     <item
